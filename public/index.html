@@ -1928,7 +1928,7 @@ async function loadImportHistory() {
   // Show importacoes records if they exist
   if(imps?.length) {
     imps.forEach(imp => {
-      const date = new Date(imp.criado_em).toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit'});
+      const date = new Date(imp.criado_em).toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
       const icon = imp.tipo_arquivo==='pdf'?'📄':imp.tipo_arquivo==='excel'?'📊':'📋';
       html += `<div class="tx-item">
         <div class="tx-icon" style="background:rgba(52,199,89,0.1)">${icon}</div>
@@ -1944,15 +1944,34 @@ async function loadImportHistory() {
   // Show monthly summary from actual transactions
   if(monthEntries.length) {
     if(imps?.length) html += '<div style="padding:10px 16px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;border-top:1px solid var(--border);margin-top:4px">Resumo por mês</div>';
+    // Build date range per month
+    const monthDates = {};
+    (txSummary||[]).forEach(t => {
+      if(!t.data_transacao) return;
+      const d = new Date(t.data_transacao+'T00:00:00');
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      if(!monthDates[key]) monthDates[key] = {min: t.data_transacao, max: t.data_transacao};
+      if(t.data_transacao < monthDates[key].min) monthDates[key].min = t.data_transacao;
+      if(t.data_transacao > monthDates[key].max) monthDates[key].max = t.data_transacao;
+    });
+
     monthEntries.forEach(([key, count]) => {
       const [y, m] = key.split('-');
+      const range = monthDates[key];
+      const minDate = range ? new Date(range.min+'T00:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'}) : '';
+      const maxDate = range ? new Date(range.max+'T00:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'}) : '';
+      const dateRange = minDate === maxDate ? minDate : `${minDate} a ${maxDate}`;
+      // Get month-year key for filter (getMonth() returns 0-based)
+      const filterKey = `${parseInt(m)-1}-${y}`;  // matches populateMonthFilter format: getMonth()-getFullYear()
+      // Actually match the format used in populateMonthFilter: `${d.getFullYear()}-${d.getMonth()}`
+      const filterVal = `${y}-${parseInt(m)-1}`;
       html += `<div class="tx-item">
         <div class="tx-icon" style="background:rgba(0,122,255,0.1)">📅</div>
         <div class="tx-info">
           <div class="tx-name">${months[parseInt(m)-1]} ${y}</div>
-          <div class="tx-date">${count} transações importadas</div>
+          <div class="tx-date">${count} transações · ${dateRange}</div>
         </div>
-        <button class="btn btn-ghost btn-sm" onclick="nav('transactions');setTimeout(()=>{document.getElementById('txMonthFilter').value='${parseInt(m)}-${parseInt(y)-1900>99?parseInt(y):parseInt(y)}';filterTx();},200)">Ver →</button>
+        <button class="btn btn-ghost btn-sm" onclick="nav('transactions');setTimeout(()=>{document.getElementById('txMonthFilter').value='${filterVal}';filterTx();},300)">Ver →</button>
       </div>`;
     });
   }
