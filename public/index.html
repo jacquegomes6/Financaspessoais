@@ -442,7 +442,7 @@ input[type="file"] { display:none; }
       <div class="page-title">Categorias</div>
       <div class="page-sub">Gerencie e edite como seus gastos são agrupados</div>
     </div>
-    <button class="btn btn-primary btn-sm" onclick="openCatModal()">+ Nova Categoria</button>
+    <button class="btn btn-primary btn-sm" onclick="createNewCategory()">+ Nova Categoria</button>
   </div>
   <div id="catList" style="display:flex;flex-direction:column;gap:12px">
     <div class="loading"><div class="spinner"></div></div>
@@ -796,27 +796,55 @@ function renderCategories() {
   if(!CATS.length) { list.innerHTML = '<div class="empty"><div class="empty-icon">🏷️</div><div class="empty-title">Nenhuma categoria</div><div class="empty-sub">Crie sua primeira categoria.</div></div>'; return; }
   list.innerHTML = CATS.map(cat => {
     const bg = cat.cor+'22';
-    const orca = cat._budget||0;
-    const spent = cat._spent||0;
-    const pct = orca>0 ? Math.min(100,Math.round(spent/orca*100)) : 0;
-    const barColor = pct>85?'var(--red)':pct>65?'var(--orange)':cat.cor;
-    const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-    return `<div class="category-item">
-      <div class="cat-icon" style="background:${bg}">${cat.icone}</div>
-      <div style="flex:1">
-        <div style="display:flex;align-items:center;gap:8px">
-          <div style="font-size:14px;font-weight:600">${cat.nome}</div>
-          <span class="tag tag-${cat.tipo}">${cat.tipo}</span>
+    return `<div class="category-item" style="align-items:flex-start;gap:16px">
+      <div class="cat-icon" style="background:${bg};margin-top:4px">${cat.icone}</div>
+      <div style="flex:1;display:grid;grid-template-columns:1fr 80px 120px auto;gap:12px;align-items:center">
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Nome</div>
+          <input class="comment-field" style="width:100%;font-size:14px;font-weight:500" value="${cat.nome}" onchange="updateCatField('${cat.id}','nome',this.value)" onblur="updateCatField('${cat.id}','nome',this.value)">
         </div>
-        ${orca>0?`<div style="margin-top:8px"><div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${barColor}"></div></div><div class="progress-info"><span>${fmt(spent)} de ${fmt(orca)} em ${months[selectedMonth-1]}/${selectedYear}</span><span>${pct}%</span></div></div>`:`<div style="font-size:12px;color:var(--text3);margin-top:4px">Sem orçamento em ${months[selectedMonth-1]}/${selectedYear}</div>`}
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Ícone</div>
+          <input class="comment-field" style="width:100%;font-size:18px;text-align:center" value="${cat.icone}" maxlength="4" onchange="updateCatField('${cat.id}','icone',this.value)" onblur="updateCatField('${cat.id}','icone',this.value)">
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Tipo</div>
+          <select class="cat-select" style="width:100%" onchange="updateCatField('${cat.id}','tipo',this.value)">
+            <option value="variavel" ${cat.tipo==='variavel'?'selected':''}>Variável</option>
+            <option value="fixo" ${cat.tipo==='fixo'?'selected':''}>Fixo</option>
+          </select>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Cor</div>
+          <input type="color" value="${cat.cor}" style="width:48px;height:36px;border:1px solid var(--border);border-radius:8px;padding:3px;cursor:pointer;background:var(--bg)" onchange="updateCatField('${cat.id}','cor',this.value)">
+        </div>
       </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
-        <button class="btn btn-ghost btn-sm" onclick="quickSetBudget('${cat.id}','${cat.nome}')">💰 Orçamento</button>
-        <button class="btn btn-ghost btn-sm" onclick="openCatModal('${cat.id}')">✏️ Editar</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteCategory('${cat.id}')">✕</button>
-      </div>
+      <button class="btn btn-danger btn-sm" style="margin-top:20px;flex-shrink:0" onclick="deleteCategory('${cat.id}')">✕</button>
     </div>`;
   }).join('');
+}
+
+async function createNewCategory() {
+  const {data, error} = await sbClient.from('categorias').insert({
+    nome: 'Nova Categoria', icone: '💳', cor: '#007AFF', tipo: 'variavel', orcamento_mensal: 0
+  }).select().single();
+  if(error) { toast('Erro: '+error.message,'error'); return; }
+  await loadCategories();
+  renderCategories();
+  toast('Categoria criada! Edite os campos abaixo.','success');
+}
+
+async function updateCatField(id, field, value) {
+  if(!value.trim()) return;
+  const update = {};
+  update[field] = value.trim();
+  const {error} = await sbClient.from('categorias').update(update).eq('id', id);
+  if(error) { toast('Erro ao salvar: '+error.message, 'error'); return; }
+  const cat = CATS.find(c=>c.id===id);
+  if(cat) cat[field] = value.trim();
+  // re-render icon bg if color changed
+  if(field==='cor' || field==='icone') renderCategories();
+  toast('Salvo!','success');
 }
 
 async function quickSetBudget(catId, catNome) {
