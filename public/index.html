@@ -396,7 +396,10 @@ input[type="file"] { display:none; }
       <div class="page-title">Importar Extrato</div>
       <div class="page-sub">OFX · PDF · Excel · CSV — IA categoriza automaticamente</div>
     </div>
-    <span class="chip purple">✦ IA ativa</span>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn btn-ghost btn-sm" onclick="openManualTx()">+ Incluir Manual</button>
+      <span class="chip purple">✦ IA ativa</span>
+    </div>
   </div>
   <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()" ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="dropFile(event)">
     <input type="file" id="fileInput" accept=".ofx,.pdf,.xlsx,.xls,.csv" onchange="handleFile(event)" multiple>
@@ -579,6 +582,54 @@ input[type="file"] { display:none; }
 </div><!-- /appShell -->
 
 <!-- MODALS -->
+<div class="modal-overlay" id="manualTxModal">
+  <div class="modal">
+    <div class="modal-title">Incluir Transação Manual</div>
+    <div class="modal-sub">Adicione uma transação que não está no extrato</div>
+    <div class="form-row">
+      <div>
+        <label class="form-label">Data da Transação</label>
+        <input class="form-input" type="date" id="manualDate" style="margin-bottom:0">
+      </div>
+      <div>
+        <label class="form-label">Data Pagamento</label>
+        <input class="form-input" type="date" id="manualPayDate" style="margin-bottom:0">
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <label class="form-label">Descrição</label>
+      <input class="form-input" id="manualDesc" placeholder="Ex: Mercado Extra, Restaurante..." style="margin-bottom:0">
+    </div>
+    <div class="form-row" style="margin-top:16px">
+      <div>
+        <label class="form-label">Valor (R$)</label>
+        <input class="form-input" type="number" step="0.01" id="manualValue" placeholder="0,00" style="margin-bottom:0">
+      </div>
+      <div>
+        <label class="form-label">Tipo</label>
+        <select class="form-input" id="manualType" style="margin-bottom:0">
+          <option value="debito">Débito (saída)</option>
+          <option value="credito">Crédito (entrada)</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <label class="form-label">Categoria</label>
+      <select class="form-input" id="manualCat" style="margin-bottom:0">
+        <option value="">-- Selecionar --</option>
+      </select>
+    </div>
+    <div style="margin-top:16px">
+      <label class="form-label">Comentário (opcional)</label>
+      <input class="form-input" id="manualComment" placeholder="Observação adicional..." style="margin-bottom:0">
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn btn-ghost" onclick="closeModal('manualTxModal')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveManualTx()">Salvar Transação</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="catModal">
   <div class="modal">
     <div class="modal-title" id="catModalTitle">Nova Categoria</div>
@@ -1842,6 +1893,56 @@ async function exportCSV() {
   const blob=new Blob(['\uFEFF'+header+rows],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='fintrack_export.csv'; a.click();
   toast('Exportado com sucesso!','success');
+}
+
+// =============================================
+// MANUAL TRANSACTION
+// =============================================
+function openManualTx() {
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('manualDate').value = today;
+  document.getElementById('manualPayDate').value = today;
+  document.getElementById('manualDesc').value = '';
+  document.getElementById('manualValue').value = '';
+  document.getElementById('manualType').value = 'debito';
+  document.getElementById('manualComment').value = '';
+  // Populate categories
+  const sel = document.getElementById('manualCat');
+  sel.innerHTML = '<option value="">-- Selecionar --</option>' +
+    CATS.map(c => `<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
+  document.getElementById('manualTxModal').classList.add('active');
+}
+
+async function saveManualTx() {
+  const date = document.getElementById('manualDate').value;
+  const payDate = document.getElementById('manualPayDate').value;
+  const desc = document.getElementById('manualDesc').value.trim();
+  const valor = parseFloat(document.getElementById('manualValue').value);
+  const tipo = document.getElementById('manualType').value;
+  const catId = document.getElementById('manualCat').value || null;
+  const comment = document.getElementById('manualComment').value.trim();
+
+  if(!date) { toast('Informe a data da transação', 'error'); return; }
+  if(!desc) { toast('Informe a descrição', 'error'); return; }
+  if(!valor || valor <= 0) { toast('Informe um valor válido', 'error'); return; }
+
+  const {error} = await sbClient.from('transacoes').insert({
+    categoria_id: catId,
+    data_transacao: date,
+    data_pagamento: payDate || date,
+    descricao: desc,
+    valor: valor,
+    tipo: tipo,
+    comentario: comment || null,
+    categorizado_por_ia: false,
+    confirmado: true
+  });
+
+  if(error) { toast('Erro ao salvar: ' + error.message, 'error'); return; }
+  closeModal('manualTxModal');
+  toast('Transação incluída com sucesso!', 'success');
+  await loadDashboard();
+  await loadImportHistory();
 }
 
 // =============================================
