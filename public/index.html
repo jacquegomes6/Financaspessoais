@@ -1272,15 +1272,22 @@ async function convertPDFtoCSVwithAI(items, rawText, banks) {
         messages: [{
           role: 'user',
           content: 'Voce e um especialista em extratos bancarios brasileiros do ' + bankHint + '.\n\n' +
-            'Analise o texto abaixo extraido de um extrato e gere um CSV com TODAS as transacoes financeiras.\n\n' +
+            'PASSO 1: Encontre o ano do extrato. No Itau aparece no cabecalho como "jan 2026" ou "extrato mensal ... jan 2026". NUNCA use numero de agencia (4 digitos como 8052) como ano.\n\n' +
+            'PASSO 2: Gere um CSV com APENAS as transacoes reais. Primeira linha: data,descricao,valor,tipo\n\n' +
             'REGRAS:\n' +
-            '- Gere APENAS o CSV, sem explicacoes, sem markdown\n' +
-            '- Primeira linha: data,descricao,valor,tipo\n' +
-            '- data: YYYY-MM-DD, valor: positivo sem R$, tipo: debito ou credito\n' +
-            '- Ignore: saldos, Res Aplic Aut Mais, Rend Pago, SALDO APLIC, totais, cabecalhos\n' +
-            '- INCLUA: PIX, pagamentos, transferencias, debitos automaticos, compras, salario, tarifas\n' +
-            '- Itau: valor com - no final = debito; sem - na coluna entradas = credito\n' +
-            '- Use o ano do cabecalho para datas parciais (ex: 02/01 com ano 2026 -> 2026-01-02)\n\n' +
+            '- data: YYYY-MM-DD usando o ano encontrado no PASSO 1. Datas parciais como 02/01 viram AAAA-01-02\n' +
+            '- valor: numero positivo sem R$ (ex: 113.75)\n' +
+            '- tipo: debito para saidas, credito para entradas\n' +
+            '- Itau: valor com hifen no final (113,75-) = debito; valor sem hifen na coluna entradas = credito\n\n' +
+            'IGNORAR COMPLETAMENTE (nao incluir no CSV):\n' +
+            '- Res Aplic Aut Mais, Rend Pago Aplic Aut Mais, SALDO APLIC AUT MAIS\n' +
+            '- Apl Aplic Aut Mais (aplicacao automatica)\n' +
+            '- Saldo anterior, Saldo final, Saldo em C/C\n' +
+            '- Linhas com apenas numeros que sao saldos (ex: 5.343,03 sem descricao)\n' +
+            '- Totais, resumos, cabecalhos, rodapes, indicadores de mercado\n\n' +
+            'INCLUIR:\n' +
+            '- PIX QRS, PIX TRANSF, PAY, PAG BOLETO, DA (debito automatico), IOF, TAR, Int/, Financ, Rshop, Remuneracao/Salario\n\n' +
+            'Gere APENAS o CSV, sem explicacoes, sem markdown, sem blocos de codigo.\n\n' +
             'Texto do extrato:\n' + structuredText
         }]
       })
@@ -1301,18 +1308,24 @@ async function convertPDFtoCSVwithAI(items, rawText, banks) {
 
 function buildItauCSVFallback(lines) {
   // Rule-based fallback specifically for Itau format
-  // Detect year from header
+  // Detect year from header - look for month name followed by 4-digit year
   let year = new Date().getFullYear();
-  const yearMatch = lines.slice(0,10).join(' ').match(/jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez\s+(\d{4})/i);
-  if(yearMatch) year = parseInt(yearMatch[1]);
-  // Also try to get from "jan 2026" style
-  const yearMatch2 = lines.slice(0,5).join(' ').match(/(\d{4})/);
-  if(yearMatch2) year = parseInt(yearMatch2[1]);
+  const headerText = lines.slice(0, 15).join(' ');
+  // Match patterns like 'jan 2026', 'janeiro 2026', 'jan/2026'
+  const monthNames = 'jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez|janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro';
+  const yearRE = new RegExp('(?:' + monthNames + ')[\\s\\/]+(20\\d{2})', 'i');
+  const yearMatch = headerText.match(yearRE);
+  if(yearMatch) { year = parseInt(yearMatch[1]); }
+  else {
+    // Fallback: find any 20XX year in first lines
+    const yearMatch2 = headerText.match(/\b(20\d{2})\b/);
+    if(yearMatch2) year = parseInt(yearMatch2[1]);
+  }
 
   const csvLines = ['data,descricao,valor,tipo'];
   const dateRE = /^(\d{2})\/(\d{2})$/;
   const amountRE = /([\d\.]+),(\d{2})-?$/;
-  const skipRE = /res aplic|rend pago|saldo aplic|saldo anterior|saldo final|saldo em|total|resumo|aplicacoes|rendimento|iof|irrf|principal|liquido|bruto/i;
+  const skipRE = /res aplic aut|rend pago aplic|saldo aplic aut|apl aplic aut|saldo anterior|saldo final|saldo em c|^\s*\d+[,.]\d{2}-?\s*$|totalizador|movimentacao.*aplicac|resumo.*mes|principal|liquido|bruto|rendimento.*mes|resgat|vencimento/i;
 
   let currentDate = null;
 
