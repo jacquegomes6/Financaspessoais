@@ -1171,41 +1171,27 @@ async function parsePDF(file) {
     const buf = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({data: buf}).promise;
 
-    // Extract text with position info - stop at internal summary sections
+    // Extract text from ALL pages, stopping after "Saldo final" line
     let allItems = [];
-    let stopExtraction = false;
+    let foundSaldoFinal = false;
     for(let p = 1; p <= pdf.numPages; p++) {
-      if(stopExtraction) break;
+      if(foundSaldoFinal) break;
       const page = await pdf.getPage(p);
       const tc = await page.getTextContent();
-      const pageTexts = tc.items.map(i => i.str).join(' ').toLowerCase();
-      // Stop before internal accounting/summary sections (not transaction pages)
-      // These sections appear AFTER all transactions in Itau statements
-      if(p > 2 && (
-        pageTexts.includes('movimentacao - aplicacoes/resgates') ||
-        pageTexts.includes('movimentação - aplicações/resgates antecipados') ||
-        pageTexts.includes('pacote de servicos') ||
-        pageTexts.includes('pacote de servi') ||
-        pageTexts.includes('notas explicativas') ||
-        pageTexts.includes('indicadores de mercado') ||
-        pageTexts.includes('custo efetivo total') ||
-        pageTexts.includes('investimentos | indicadores') ||
-        pageTexts.includes('rentabilidade acumulada') ||
-        (pageTexts.includes('aplicacoes realizadas') && pageTexts.includes('valor principal') && pageTexts.includes('rendimento bruto'))
-      )) {
-        stopExtraction = true;
-        break;
-      }
-      tc.items.forEach(item => {
-        if(item.str && item.str.trim()) {
-          allItems.push({
-            text: item.str.trim(),
-            x: Math.round(item.transform[4]),
-            y: Math.round(item.transform[5]),
-            page: p
-          });
+      for(const item of tc.items) {
+        if(!item.str || !item.str.trim()) continue;
+        allItems.push({
+          text: item.str.trim(),
+          x: Math.round(item.transform[4]),
+          y: Math.round(item.transform[5]),
+          page: p
+        });
+        // Stop after "Saldo final" — everything after is summaries/tables
+        if(/saldo\s*final/i.test(item.str.trim())) {
+          foundSaldoFinal = true;
+          break;
         }
-      });
+      }
     }
 
     if(!allItems.length) {
