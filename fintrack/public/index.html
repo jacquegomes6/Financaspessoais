@@ -703,8 +703,6 @@ async function bootApp() {
 
 function updateGreeting() {
   const h = new Date().getHours();
-  const g = h<12?'Bom dia':'h<18?Boa tarde':'Boa noite';
-  const greet = h<12?'Bom dia':'h<18?'Boa tarde':'Boa noite';
   document.getElementById('dashGreeting').textContent = `${h<12?'Bom dia':h<18?'Boa tarde':'Boa noite'}! 👋`;
   const now = new Date();
   const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
