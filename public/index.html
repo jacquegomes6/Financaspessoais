@@ -906,8 +906,9 @@ async function loadCategoryBudgets() {
   const budgetMap={};
   (objs||[]).forEach(o=>budgetMap[o.categoria_id]=parseFloat(o.valor_objetivo));
   const spendMap={};
-  (txMes||[]).filter(t=>t.tipo==='debito').forEach(t=>{
-    if(t.categoria_id) spendMap[t.categoria_id]=(spendMap[t.categoria_id]||0)+Math.abs(parseFloat(t.valor));
+  (txMes||[]).forEach(t=>{
+    if(!t.categoria_id) return;
+    spendMap[t.categoria_id]=(spendMap[t.categoria_id]||0)+Math.abs(parseFloat(t.valor));
   });
   CATS.forEach(c=>{
     c._budget = budgetMap[c.id]||0;
@@ -932,7 +933,7 @@ function renderCategories() {
     const bg = cat.cor+'22';
     return `<div class="category-item" style="align-items:flex-start;gap:16px">
       <div class="cat-icon" style="background:${bg};margin-top:4px">${cat.icone}</div>
-      <div style="flex:1;display:grid;grid-template-columns:1fr 80px 120px auto;gap:12px;align-items:center">
+      <div style="flex:1;display:grid;grid-template-columns:1fr 80px 100px 100px auto;gap:12px;align-items:center">
         <div>
           <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Nome</div>
           <input class="comment-field" style="width:100%;font-size:14px;font-weight:500" value="${cat.nome}" onchange="updateCatField('${cat.id}','nome',this.value)" onblur="updateCatField('${cat.id}','nome',this.value)">
@@ -949,6 +950,13 @@ function renderCategories() {
           </select>
         </div>
         <div>
+          <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Natureza</div>
+          <select class="cat-select" style="width:100%" onchange="updateCatField('${cat.id}','natureza',this.value)">
+            <option value="despesa" ${(!cat.natureza||cat.natureza==='despesa')?'selected':''}>Despesa</option>
+            <option value="receita" ${cat.natureza==='receita'?'selected':''}>Receita</option>
+          </select>
+        </div>
+        <div>
           <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Cor</div>
           <input type="color" value="${cat.cor}" style="width:48px;height:36px;border:1px solid var(--border);border-radius:8px;padding:3px;cursor:pointer;background:var(--bg)" onchange="updateCatField('${cat.id}','cor',this.value)">
         </div>
@@ -960,7 +968,7 @@ function renderCategories() {
 
 async function createNewCategory() {
   const {data, error} = await sbClient.from('categorias').insert({
-    nome: 'Nova Categoria', icone: '💳', cor: '#007AFF', tipo: 'variavel', orcamento_mensal: 0
+    nome: 'Nova Categoria', icone: '💳', cor: '#007AFF', tipo: 'variavel', natureza: 'despesa', orcamento_mensal: 0
   }).select().single();
   if(error) { toast('Erro: '+error.message,'error'); return; }
   // Add to top of list
@@ -1082,13 +1090,24 @@ async function loadDashboard() {
     <div class="metric-card blue"><div class="metric-label">Saldo Líquido</div><div class="metric-value" style="color:var(--accent)">${fmt(saldo)}</div><div class="metric-sub">${receitas>0?Math.round(saldo/receitas*100):0}% da receita</div></div>
     <div class="metric-card purple"><div class="metric-label">Transações</div><div class="metric-value" style="color:var(--purple)">${(txMes||[]).length}</div><div class="metric-sub">este mês</div></div>`;
 
-  // Gasto por categoria (para donut)
-  const catSpend = {};
-  (txMes||[]).filter(t=>t.tipo==='debito').forEach(t=>{
-    if(t.categoria_id) catSpend[t.categoria_id]=(catSpend[t.categoria_id]||0)+Math.abs(parseFloat(t.valor));
+  // Gasto por categoria (para donut) - considera débitos e créditos separadamente
+  const catSpend = {};   // débitos (saídas)
+  const catIncome = {};  // créditos (entradas)
+  (txMes||[]).forEach(t=>{
+    if(!t.categoria_id) return;
+    if(t.tipo==='debito') catSpend[t.categoria_id]=(catSpend[t.categoria_id]||0)+Math.abs(parseFloat(t.valor));
+    else catIncome[t.categoria_id]=(catIncome[t.categoria_id]||0)+parseFloat(t.valor);
   });
-  CATS.forEach(c=>c._spent=catSpend[c.id]||0);
-  buildDonut(catSpend);
+  CATS.forEach(c=>{
+    c._spent=catSpend[c.id]||0;
+    c._income=catIncome[c.id]||0;
+  });
+  // Donut mostra apenas categorias de despesa
+  const donutData = {};
+  CATS.filter(c=>!c.natureza||c.natureza==='despesa').forEach(c=>{
+    if(catSpend[c.id]) donutData[c.id]=catSpend[c.id];
+  });
+  buildDonut(donutData);
 
   // Recentes
   const recent = (txMes||[]).sort((a,b)=>new Date(b.data_transacao)-new Date(a.data_transacao)).slice(0,6);
@@ -1259,11 +1278,14 @@ function txHtml(tx) {
 }
 
 async function updateTxCat(id, catId) {
-  await sbClient.from('transacoes').update({categoria_id: catId||null}).eq('id', id);
+  const {error} = await sbClient.from('transacoes').update({categoria_id: catId||null}).eq('id', id);
+  if(error) { toast('Erro ao atualizar: '+error.message, 'error'); return; }
   const tx = ALL_TX.find(t => t.id === id);
   if(tx) tx.categoria_id = catId||null;
   toast('Categoria atualizada!', 'success');
+  await loadCategoryBudgets();
   await loadDashboard();
+  await loadObjectives();
 }
 
 async function updateTxComment(id, comment) {
@@ -2072,8 +2094,10 @@ async function loadObjectives() {
     .lt('data_transacao',mes===12?`${ano+1}-01-01`:`${ano}-${String(mes+1).padStart(2,'0')}-01`);
 
   const catSpend={};
-  (txMes||[]).filter(t=>t.tipo==='debito').forEach(t=>{
-    if(t.categoria_id) catSpend[t.categoria_id]=(catSpend[t.categoria_id]||0)+Math.abs(parseFloat(t.valor));
+  (txMes||[]).forEach(t=>{
+    if(!t.categoria_id) return;
+    const val = Math.abs(parseFloat(t.valor));
+    catSpend[t.categoria_id]=(catSpend[t.categoria_id]||0)+val;
   });
 
   const objMap={};
@@ -2092,25 +2116,36 @@ async function loadObjectives() {
 
   document.getElementById('objGrid').innerHTML=getOrderedCats().map(cat=>{
     const orca=objMap[cat.id]||cat.orcamento_mensal||0;
-    const gasto=catSpend[cat.id]||0;
-    const pct=orca>0?Math.min(100,Math.round(gasto/orca*100)):0;
-    const avail=orca-gasto;
-    const barColor=pct>85?'var(--red)':pct>65?'var(--orange)':'var(--green)';
-    const chipCls=pct>85?'red':pct>65?'orange':'green';
+    const isReceita = cat.natureza==='receita';
+    const movimentado=catSpend[cat.id]||0;
+    const pct=orca>0?Math.min(100,Math.round(movimentado/orca*100)):0;
+    const avail = isReceita ? movimentado - orca : orca - movimentado;
+    const barColor = isReceita
+      ? (pct>=100?'var(--green)':pct>=70?'var(--accent)':'var(--orange)')
+      : (pct>85?'var(--red)':pct>65?'var(--orange)':'var(--green)');
+    const chipCls = isReceita
+      ? (pct>=100?'green':pct>=70?'blue':'orange')
+      : (pct>85?'red':pct>65?'orange':'green');
     const bg=cat.cor+'22';
+    const naturezaLabel = isReceita
+      ? `<span class="chip green" style="font-size:10px">Receita</span>`
+      : `<span class="chip red" style="font-size:10px">Despesa</span>`;
+    const availLabel = isReceita
+      ? (avail>=0?'Acima da meta':'Abaixo da meta')
+      : (avail>=0?'Disponível':'Ultrapassado');
     return `<div class="obj-card" data-cat-id="${cat.id}" title="Arraste para reordenar">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
         <div>
           <div style="font-size:14px;font-weight:600">${cat.icone} ${cat.nome}</div>
-          <div style="font-size:11px;color:var(--text3);margin-top:2px">${cat.tipo}</div>
+          <div style="display:flex;gap:4px;margin-top:4px">${naturezaLabel}</div>
         </div>
         <span class="chip ${chipCls}">${pct}%</span>
       </div>
-      <div style="font-size:18px;font-weight:700;margin-bottom:8px">${fmt(gasto)}</div>
+      <div style="font-size:18px;font-weight:700;margin-bottom:8px;color:${isReceita?'var(--green)':'var(--text)'}">${isReceita?'+':''}${fmt(movimentado)}</div>
       <div class="progress-bar" style="height:7px"><div class="progress-fill" style="width:${pct}%;background:${barColor}"></div></div>
       <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-top:6px">
         <span>Meta: ${fmt(orca)}</span>
-        <span>Livre: <strong style="color:${avail>=0?'var(--green)':'var(--red)'}">${fmt(Math.abs(avail))}</strong></span>
+        <span>${availLabel}: <strong style="color:${avail>=0?'var(--green)':'var(--red)'}">${fmt(Math.abs(avail))}</strong></span>
       </div>
     </div>`;
   }).join('');
