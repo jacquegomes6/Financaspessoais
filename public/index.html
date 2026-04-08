@@ -328,9 +328,14 @@ input[type="file"] { display:none; }
     <div class="chart-card">
       <div class="chart-header">
         <div class="chart-title">Evolução Mensal</div>
-        <div class="legend">
-          <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div>Receitas</div>
-          <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>Despesas</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <select id="barChartCatFilter" class="cat-select" style="font-size:12px;padding:5px 10px" onchange="buildBarChart()">
+            <option value="">Todas categorias</option>
+          </select>
+          <div class="legend">
+            <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div>Receitas</div>
+            <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>Despesas</div>
+          </div>
         </div>
       </div>
       <div class="bar-chart" id="barChart"></div>
@@ -343,13 +348,7 @@ input[type="file"] { display:none; }
       <div id="donutLegend" style="display:flex;flex-direction:column;gap:6px"></div>
     </div>
   </div>
-  <div class="chart-card">
-    <div class="chart-header">
-      <div class="chart-title">Últimas Transações</div>
-      <button class="btn btn-ghost btn-sm" onclick="nav('transactions')">Ver todas →</button>
-    </div>
-    <div class="tx-list" id="recentTx"></div>
-  </div>
+
 
   <div class="chart-card">
     <div class="chart-header">
@@ -1109,27 +1108,75 @@ async function loadDashboard() {
   });
   buildDonut(donutData);
 
-  // Recentes
-  const recent = (txMes||[]).sort((a,b)=>new Date(b.data_transacao)-new Date(a.data_transacao)).slice(0,6);
   ALL_TX = txMes||[];
-  document.getElementById('recentTx').innerHTML = recent.length
-    ? recent.map(t=>txHtml(t)).join('')
-    : '<div class="empty"><div class="empty-icon">💳</div><div class="empty-title">Sem transações</div><div class="empty-sub">Importe seu primeiro extrato.</div></div>';
 
   await buildBarChart();
   await loadObjectives();
 }
 
 async function buildBarChart() {
-  const {data} = await sbClient.from('evolucao_mensal').select('*').order('ano').order('mes');
   const chart = document.getElementById('barChart');
-  if(!data||!data.length) { chart.innerHTML='<div style="color:var(--text3);font-size:13px">Sem dados</div>'; return; }
+  const catFilter = document.getElementById('barChartCatFilter')?.value || '';
   const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-  const maxVal = Math.max(...data.map(d=>Math.max(parseFloat(d.total_receitas||0),parseFloat(d.total_despesas||0))),1);
-  chart.innerHTML = data.slice(-6).map(d=>{
-    const ih = Math.round((parseFloat(d.total_receitas||0)/maxVal)*110);
-    const eh = Math.round((parseFloat(d.total_despesas||0)/maxVal)*110);
-    return `<div class="bar-group"><div class="bars"><div class="bar bar-income" style="height:${ih}px" title="Receita: ${fmt(d.total_receitas)}"></div><div class="bar bar-expense" style="height:${eh}px" title="Despesa: ${fmt(d.total_despesas)}"></div></div><div class="bar-label">${months[parseInt(d.mes)-1]}</div></div>`;
+
+  // Populate filter options if empty
+  const sel = document.getElementById('barChartCatFilter');
+  if(sel && sel.options.length <= 1) {
+    CATS.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.icone + ' ' + c.nome;
+      sel.appendChild(opt);
+    });
+  }
+
+  if(!catFilter) {
+    // No filter: use the view
+    const {data} = await sbClient.from('evolucao_mensal').select('*').order('ano').order('mes');
+    if(!data||!data.length) { chart.innerHTML='<div style="color:var(--text3);font-size:13px">Sem dados</div>'; return; }
+    const maxVal = Math.max(...data.map(d=>Math.max(parseFloat(d.total_receitas||0),parseFloat(d.total_despesas||0))),1);
+    chart.innerHTML = data.slice(-6).map(d=>{
+      const ih = Math.round((parseFloat(d.total_receitas||0)/maxVal)*110);
+      const eh = Math.round((parseFloat(d.total_despesas||0)/maxVal)*110);
+      return `<div class="bar-group"><div class="bars"><div class="bar bar-income" style="height:${ih}px" title="Receita: ${fmt(d.total_receitas)}"></div><div class="bar bar-expense" style="height:${eh}px" title="Despesa: ${fmt(d.total_despesas)}"></div></div><div class="bar-label">${months[parseInt(d.mes)-1]}</div></div>`;
+    }).join('');
+    return;
+  }
+
+  // With category filter: query transactions directly
+  const {data:txs} = await sbClient.from('transacoes')
+    .select('data_transacao,valor,tipo')
+    .eq('confirmado', true)
+    .eq('categoria_id', catFilter);
+
+  if(!txs||!txs.length) { chart.innerHTML='<div style="color:var(--text3);font-size:13px">Sem dados para esta categoria</div>'; return; }
+
+  // Group by month (last 6 months)
+  const now = new Date();
+  const monthData = {};
+  for(let i=5; i>=0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    monthData[key] = {receitas:0, despesas:0, mes:d.getMonth()+1, ano:d.getFullYear()};
+  }
+
+  txs.forEach(t => {
+    if(!t.data_transacao) return;
+    const key = t.data_transacao.substring(0,7);
+    if(!monthData[key]) return;
+    const val = Math.abs(parseFloat(t.valor));
+    if(t.tipo==='credito') monthData[key].receitas += val;
+    else monthData[key].despesas += val;
+  });
+
+  const entries = Object.values(monthData);
+  const maxVal = Math.max(...entries.map(d=>Math.max(d.receitas,d.despesas)),1);
+  const cat = CATS.find(c=>c.id===catFilter);
+
+  chart.innerHTML = entries.map(d=>{
+    const ih = Math.round((d.receitas/maxVal)*110);
+    const eh = Math.round((d.despesas/maxVal)*110);
+    return `<div class="bar-group"><div class="bars"><div class="bar bar-income" style="height:${ih}px" title="Receita: ${fmt(d.receitas)}"></div><div class="bar bar-expense" style="height:${eh}px" title="Despesa: ${fmt(d.despesas)}"></div></div><div class="bar-label">${months[d.mes-1]}</div></div>`;
   }).join('');
 }
 
