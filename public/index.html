@@ -1366,30 +1366,46 @@ function buildItauCSVFallback(lines) {
 }
 
 function filterBankInternalLines(txs) {
-  // Remove internal bank lines that should never appear as transactions
-  const skipDescRE = /^(res aplic|rend pago|saldo aplic|apl aplic|saldo anterior|saldo final|saldo em|aplic aut|\d+[,\.]\d{2}|\d+\s+\d{2}$)/i;
-  const skipExactRE = /^(\d{1,3}\.?\d{3},\d{2}|\d+,\d{2})$/; // pure number descriptions
+  // Patterns to SKIP - internal bank accounting lines
+  const skipPatterns = [
+    /^res(gate)?\s*aplic/i,           // Res Aplic Aut Mais, Resgate Aplic
+    /^rend(imento)?\s*pago/i,         // Rend Pago Aplic Aut Mais
+    /^saldo\s*aplic/i,                // SALDO APLIC AUT MAIS
+    /^apl(ica[cç][aã]o)?\s*aplic/i,  // Apl Aplic Aut Mais
+    /^saldo\s*(anterior|final|em\s*c)/i, // Saldo anterior, final, em C/C
+    /^na\s*conta\s*corrente/i,        // na conta corrente (1)
+    /^l[ií]quido$/i,                  // líquido (resumo aplicacoes)
+    /^bruto$/i,                       // bruto (resumo aplicacoes)
+    /^principal$/i,                   // principal (resumo aplicacoes)
+    /^hist[oó]rico$/i,                // histórico (cabecalho tabela)
+    /^totalizador/i,                  // totalizador de aplicacoes
+    /^movimenta[cç][aã]o.*aplic/i,    // movimentacao aplicacoes
+    /^resumo.*m[eê]s/i,               // resumo - mes
+    /^aplicac[oõ]es.*realiz/i,        // aplicacoes realizadas
+    /^valor.*principal/i,             // valor principal
+    /^resgat.*venc/i,                 // resgat/venc
+    /^(\d{2}\/\d{2}\s+)?\d+[\s\.]+\d{2}$/, // pure numbers like "5.343 03" or "02/01 0 00"
+    /^\d{2}\/\d{2}\s+\d+\s+\d{2}$/,  // "02/01 0 00" pattern
+  ];
 
   return txs.filter(tx => {
     const desc = (tx.descricao || '').trim();
+    if(!desc || desc.length < 2) return false;
 
-    // Skip if description matches internal patterns
-    if(skipDescRE.test(desc)) return false;
+    // Check all skip patterns
+    if(skipPatterns.some(re => re.test(desc))) return false;
 
-    // Skip if description is just numbers (saldo lines)
-    if(skipExactRE.test(desc)) return false;
+    // Skip if description is purely numeric (saldo values)
+    if(/^\d[\d\.\s,]*\d$/.test(desc) && desc.length < 15) return false;
 
-    // Skip if description looks like a balance (e.g. "5.343 03" or "4.705 57")
-    if(/^\d[\d\.]+\s+\d{2}$/.test(desc)) return false;
+    // Skip rendimento centavos (< R$1 credito with no real description)
+    if(tx.tipo === 'credito' && tx.valor < 1.00) return false;
 
-    // Skip very small rendimento values (< R$1) that are application yields
-    if(tx.tipo === 'credito' && tx.valor < 1.00 && /^(0[,.]\d{2}|rend|\d{1,2})$/i.test(desc)) return false;
+    // Skip totalizador values (very large round numbers that are application summaries)
+    // e.g. "na conta corrente (1)" 11504.17 - already caught above
 
-    // Skip Res Aplic variations
-    if(/res(gate)?\s*aplic/i.test(desc)) return false;
-
-    // Skip SALDO lines
-    if(/^saldo/i.test(desc)) return false;
+    // Skip lines that look like table rows from the CDB summary section
+    if(/^\d{2}\/\d{2}$/.test(desc)) return false; // just a date "02/01"
 
     return true;
   });
