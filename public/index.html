@@ -376,16 +376,33 @@ input[type="file"] { display:none; }
     <button class="btn btn-primary btn-sm" onclick="nav('upload')">⬆ Importar</button>
   </div>
   <div class="chart-card" style="padding:0">
-    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap">
-      <input id="txSearch" style="flex:1;min-width:160px;border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:14px;outline:none;font-family:inherit;background:var(--bg)" placeholder="Buscar..." oninput="filterTx()">
-      <select class="cat-select" id="txCatFilter" onchange="filterTx()">
-        <option value="">Todas categorias</option>
-      </select>
-      <select class="cat-select" id="txMonthFilter" onchange="filterTx()">
-        <option value="">Todos os meses</option>
+    <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input id="txSearch" style="flex:1;min-width:160px;border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:14px;outline:none;font-family:inherit;background:var(--bg)" placeholder="Buscar transação..." oninput="filterTx()">
+      <select class="cat-select" id="txCatFilter" onchange="filterTx()"><option value="">Todas categorias</option></select>
+      <select class="cat-select" id="txMonthFilter" onchange="filterTx()"><option value="">Todos os meses</option></select>
+      <select class="cat-select" id="txTypeFilter" onchange="filterTx()">
+        <option value="">Débito e Crédito</option>
+        <option value="debito">Só Débitos</option>
+        <option value="credito">Só Créditos</option>
       </select>
     </div>
-    <div class="tx-list" id="allTxList" style="max-height:550px;overflow-y:auto;gap:0"></div>
+    <div style="overflow-x:auto">
+      <table id="txTable" style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr style="background:var(--bg)">
+            <th style="text-align:left;padding:10px 14px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;border-bottom:1px solid var(--border);white-space:nowrap">Data</th>
+            <th style="text-align:left;padding:10px 14px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;border-bottom:1px solid var(--border)">Descrição</th>
+            <th style="text-align:left;padding:10px 14px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;border-bottom:1px solid var(--border)">Categoria</th>
+            <th style="text-align:left;padding:10px 14px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;border-bottom:1px solid var(--border)">Tipo</th>
+            <th style="text-align:right;padding:10px 14px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;border-bottom:1px solid var(--border)">Valor</th>
+            <th style="text-align:left;padding:10px 14px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;border-bottom:1px solid var(--border)">Comentário</th>
+            <th style="text-align:center;padding:10px 14px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;border-bottom:1px solid var(--border)">Ações</th>
+          </tr>
+        </thead>
+        <tbody id="allTxList"></tbody>
+      </table>
+    </div>
+    <div id="txEmpty" style="display:none" class="empty"><div class="empty-icon">🔍</div><div class="empty-title">Nenhuma transação encontrada</div></div>
   </div>
 </div>
 
@@ -582,6 +599,55 @@ input[type="file"] { display:none; }
 </div><!-- /appShell -->
 
 <!-- MODALS -->
+<div class="modal-overlay" id="editTxModal">
+  <div class="modal" style="width:560px;max-width:95vw">
+    <div class="modal-title">Editar Transação</div>
+    <div class="modal-sub">Altere os dados da transação</div>
+    <input type="hidden" id="editTxId">
+    <div class="form-row">
+      <div>
+        <label class="form-label">Data da Transação</label>
+        <input class="form-input" type="date" id="editTxDate" style="margin-bottom:0">
+      </div>
+      <div>
+        <label class="form-label">Data Pagamento</label>
+        <input class="form-input" type="date" id="editTxPayDate" style="margin-bottom:0">
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <label class="form-label">Descrição</label>
+      <input class="form-input" id="editTxDesc" style="margin-bottom:0">
+    </div>
+    <div class="form-row" style="margin-top:16px">
+      <div>
+        <label class="form-label">Valor (R$)</label>
+        <input class="form-input" type="number" step="0.01" id="editTxValue" style="margin-bottom:0">
+      </div>
+      <div>
+        <label class="form-label">Tipo</label>
+        <select class="form-input" id="editTxType" style="margin-bottom:0">
+          <option value="debito">Débito (saída)</option>
+          <option value="credito">Crédito (entrada)</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <label class="form-label">Categoria</label>
+      <select class="form-input" id="editTxCat" style="margin-bottom:0">
+        <option value="">-- Sem categoria --</option>
+      </select>
+    </div>
+    <div style="margin-top:16px">
+      <label class="form-label">Comentário</label>
+      <input class="form-input" id="editTxComment" placeholder="Observação adicional..." style="margin-bottom:0">
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn btn-ghost" onclick="closeModal('editTxModal')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveEditTx()">Salvar Alterações</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="manualTxModal">
   <div class="modal">
     <div class="modal-title">Incluir Transação Manual</div>
@@ -1087,29 +1153,78 @@ function populateMonthFilter() {
 }
 
 function filterTx() {
-  const q=document.getElementById('txSearch').value.toLowerCase();
-  const cat=document.getElementById('txCatFilter').value;
-  const mon=document.getElementById('txMonthFilter').value;
-  const filtered=ALL_TX.filter(t=>{
-    const matchQ=!q||t.descricao.toLowerCase().includes(q);
-    const matchC=!cat||t.categoria_id===cat;
-    const matchM=!mon||(()=>{const d=new Date(t.data_transacao+'T00:00:00');return `${d.getFullYear()}-${d.getMonth()}`===mon;})();
-    return matchQ&&matchC&&matchM;
+  const q = document.getElementById('txSearch').value.toLowerCase();
+  const cat = document.getElementById('txCatFilter').value;
+  const mon = document.getElementById('txMonthFilter').value;
+  const typ = document.getElementById('txTypeFilter').value;
+  const filtered = ALL_TX.filter(t => {
+    const matchQ = !q || t.descricao.toLowerCase().includes(q);
+    const matchC = !cat || t.categoria_id === cat;
+    const matchM = !mon || (()=>{ const d=new Date(t.data_transacao+'T00:00:00'); return `${d.getFullYear()}-${d.getMonth()}`===mon; })();
+    const matchT = !typ || t.tipo === typ;
+    return matchQ && matchC && matchM && matchT;
   });
   renderTxList(filtered);
 }
 
 function renderTxList(txs) {
-  const el=document.getElementById('allTxList');
-  el.innerHTML=txs.length?txs.map(t=>txHtml(t)).join(''):'<div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">Nenhuma transação encontrada</div></div>';
+  const tbody = document.getElementById('allTxList');
+  const empty = document.getElementById('txEmpty');
+  if(!txs.length) {
+    tbody.innerHTML = '';
+    if(empty) empty.style.display = 'block';
+    return;
+  }
+  if(empty) empty.style.display = 'none';
+  tbody.innerHTML = txs.map(tx => {
+    const cat = catById(tx.categoria_id);
+    const bg = cat.cor + '22';
+    const isNeg = tx.tipo === 'debito';
+    const dateStr = tx.data_transacao ? new Date(tx.data_transacao+'T00:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'}) : '';
+    const payStr = tx.data_pagamento && tx.data_pagamento !== tx.data_transacao
+      ? new Date(tx.data_pagamento+'T00:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'}) : dateStr;
+    const catOpts = CATS.map(c =>
+      `<option value="${c.id}" ${c.id===tx.categoria_id?'selected':''}>${c.icone} ${c.nome}</option>`
+    ).join('');
+    return `<tr style="border-bottom:1px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">
+      <td style="padding:10px 14px;white-space:nowrap;vertical-align:middle">
+        <div style="font-size:13px;font-weight:500">${dateStr}</div>
+        ${payStr !== dateStr ? `<div style="font-size:11px;color:var(--text3)">fat: ${payStr}</div>` : ''}
+      </td>
+      <td style="padding:10px 14px;vertical-align:middle;max-width:220px">
+        <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${tx.descricao}">${tx.descricao}</div>
+        ${tx.categorizado_por_ia ? '<span style="font-size:10px;color:var(--purple)">✦ IA</span>' : ''}
+      </td>
+      <td style="padding:10px 14px;vertical-align:middle">
+        <select class="cat-select" style="font-size:12px;padding:4px 8px" onchange="updateTxCat('${tx.id}',this.value)">
+          <option value="">-- Sem cat --</option>
+          ${catOpts}
+        </select>
+      </td>
+      <td style="padding:10px 14px;vertical-align:middle">
+        <span class="tag ${tx.tipo==='debito'?'tag-variavel':'tag-fixo'}">${tx.tipo}</span>
+      </td>
+      <td style="padding:10px 14px;text-align:right;vertical-align:middle;white-space:nowrap">
+        <span style="font-size:13px;font-weight:600;color:${isNeg?'var(--red)':'var(--green)'}">${isNeg?'-':'+'}${fmt(Math.abs(parseFloat(tx.valor)))}</span>
+      </td>
+      <td style="padding:10px 14px;vertical-align:middle;max-width:160px">
+        <input class="comment-field" style="width:100%;font-size:12px" value="${tx.comentario||''}" placeholder="Comentário..." onblur="updateTxComment('${tx.id}',this.value)">
+      </td>
+      <td style="padding:10px 14px;text-align:center;vertical-align:middle;white-space:nowrap">
+        <button class="btn btn-ghost btn-sm" style="padding:5px 10px;font-size:12px" onclick="openEditTx('${tx.id}')">✏️</button>
+        <button class="btn btn-danger btn-sm" style="padding:5px 10px;font-size:12px;margin-left:4px" onclick="deleteTx('${tx.id}')">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
 }
 
 function txHtml(tx) {
-  const cat=catById(tx.categoria_id);
-  const bg=cat.cor+'22';
-  const isNeg=tx.tipo==='debito';
-  const dateStr=tx.data_transacao?new Date(tx.data_transacao+'T00:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):'';
-  const payStr=tx.data_pagamento&&tx.data_pagamento!==tx.data_transacao?` · fatura ${new Date(tx.data_pagamento+'T00:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'})}`:''
+  // Legacy - kept for dashboard recent list
+  const cat = catById(tx.categoria_id);
+  const bg = cat.cor+'22';
+  const isNeg = tx.tipo==='debito';
+  const dateStr = tx.data_transacao ? new Date(tx.data_transacao+'T00:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}) : '';
+  const payStr = tx.data_pagamento&&tx.data_pagamento!==tx.data_transacao ? ` · fat ${new Date(tx.data_pagamento+'T00:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'})}` : '';
   return `<div class="tx-item">
     <div class="tx-icon" style="background:${bg}">${cat.icone}</div>
     <div class="tx-info">
@@ -1120,9 +1235,73 @@ function txHtml(tx) {
     </div>
     <div style="text-align:right">
       <div class="tx-amount ${isNeg?'neg':'pos'}">${isNeg?'-':'+'} ${fmt(Math.abs(parseFloat(tx.valor)))}</div>
-      <span class="tag tag-${cat.tipo}">${cat.tipo||''}</span>
+      <span class="tag tag-${cat.tipo||'variavel'}">${cat.tipo||''}</span>
     </div>
   </div>`;
+}
+
+async function updateTxCat(id, catId) {
+  await sbClient.from('transacoes').update({categoria_id: catId||null}).eq('id', id);
+  const tx = ALL_TX.find(t => t.id === id);
+  if(tx) tx.categoria_id = catId||null;
+  toast('Categoria atualizada!', 'success');
+  await loadDashboard();
+}
+
+async function updateTxComment(id, comment) {
+  await sbClient.from('transacoes').update({comentario: comment||null}).eq('id', id);
+  const tx = ALL_TX.find(t => t.id === id);
+  if(tx) tx.comentario = comment||null;
+}
+
+async function deleteTx(id) {
+  if(!confirm('Deletar esta transação? Esta ação não pode ser desfeita.')) return;
+  const {error} = await sbClient.from('transacoes').delete().eq('id', id);
+  if(error) { toast('Erro ao deletar: '+error.message, 'error'); return; }
+  ALL_TX = ALL_TX.filter(t => t.id !== id);
+  filterTx();
+  document.getElementById('txCount').textContent = `${ALL_TX.length} transações carregadas`;
+  toast('Transação deletada!', 'info');
+  await loadDashboard();
+}
+
+function openEditTx(id) {
+  const tx = ALL_TX.find(t => t.id === id);
+  if(!tx) return;
+  document.getElementById('editTxId').value = id;
+  document.getElementById('editTxDate').value = tx.data_transacao || '';
+  document.getElementById('editTxPayDate').value = tx.data_pagamento || tx.data_transacao || '';
+  document.getElementById('editTxDesc').value = tx.descricao || '';
+  document.getElementById('editTxValue').value = Math.abs(parseFloat(tx.valor)) || '';
+  document.getElementById('editTxType').value = tx.tipo || 'debito';
+  document.getElementById('editTxComment').value = tx.comentario || '';
+  const sel = document.getElementById('editTxCat');
+  sel.innerHTML = '<option value="">-- Sem categoria --</option>' +
+    CATS.map(c => `<option value="${c.id}" ${c.id===tx.categoria_id?'selected':''}>${c.icone} ${c.nome}</option>`).join('');
+  document.getElementById('editTxModal').classList.add('active');
+}
+
+async function saveEditTx() {
+  const id = document.getElementById('editTxId').value;
+  const data = {
+    data_transacao: document.getElementById('editTxDate').value,
+    data_pagamento: document.getElementById('editTxPayDate').value || document.getElementById('editTxDate').value,
+    descricao: document.getElementById('editTxDesc').value.trim(),
+    valor: parseFloat(document.getElementById('editTxValue').value) || 0,
+    tipo: document.getElementById('editTxType').value,
+    categoria_id: document.getElementById('editTxCat').value || null,
+    comentario: document.getElementById('editTxComment').value.trim() || null
+  };
+  if(!data.descricao) { toast('Informe a descrição', 'error'); return; }
+  if(!data.valor) { toast('Informe um valor válido', 'error'); return; }
+  const {error} = await sbClient.from('transacoes').update(data).eq('id', id);
+  if(error) { toast('Erro ao salvar: '+error.message, 'error'); return; }
+  const idx = ALL_TX.findIndex(t => t.id === id);
+  if(idx >= 0) ALL_TX[idx] = {...ALL_TX[idx], ...data};
+  closeModal('editTxModal');
+  filterTx();
+  toast('Transação atualizada!', 'success');
+  await loadDashboard();
 }
 
 // =============================================
