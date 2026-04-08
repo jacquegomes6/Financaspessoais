@@ -1094,6 +1094,8 @@ async function processFile(file) {
     else if(ext==='pdf') txs=await parsePDF(file);
   } catch(err) { toast('Erro ao ler arquivo: '+err.message,'error'); return; }
 
+  // Apply universal filter to remove bank internal lines (same filter as PDF)
+  txs = filterBankInternalLines(txs);
   if(!txs.length) { toast('Nenhuma transação encontrada no arquivo','error'); return; }
   toast(`${txs.length} transações encontradas. Categorizando com IA...`,'info');
   pendingTx = await categorizarComIA(txs);
