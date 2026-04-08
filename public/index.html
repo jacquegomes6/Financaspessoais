@@ -283,9 +283,7 @@ input[type="file"] { display:none; }
     <div class="nav-item" onclick="nav('categories')">
       <div class="nav-icon" style="background:rgba(175,82,222,0.12)">🏷️</div>Categorias
     </div>
-    <div class="nav-item" onclick="nav('objectives')">
-      <div class="nav-icon" style="background:rgba(255,59,48,0.12)">🎯</div>Objetivos
-    </div>
+
     <div class="nav-section">Integração</div>
     <div class="nav-item" onclick="nav('whatsapp')">
       <div class="nav-icon" style="background:rgba(37,211,102,0.12)">💬</div>WhatsApp
@@ -346,6 +344,17 @@ input[type="file"] { display:none; }
       <button class="btn btn-ghost btn-sm" onclick="nav('transactions')">Ver todas →</button>
     </div>
     <div class="tx-list" id="recentTx"></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-header">
+      <div class="chart-title">🎯 Objetivos por Categoria</div>
+      <button class="btn btn-ghost btn-sm" onclick="openObjModal()">+ Definir Objetivo</button>
+    </div>
+    <div class="obj-grid" id="objGrid" style="margin-top:4px"></div>
+    <div class="info-box" style="margin-top:16px">
+      <strong>💬 Dica:</strong> Pergunte pelo WhatsApp "Quanto tenho disponível em restaurante?" para consultar seu saldo a qualquer hora.
+    </div>
   </div>
 </div>
 
@@ -437,22 +446,6 @@ input[type="file"] { display:none; }
   </div>
   <div id="catList" style="display:flex;flex-direction:column;gap:12px">
     <div class="loading"><div class="spinner"></div></div>
-  </div>
-</div>
-
-<!-- OBJECTIVES -->
-<div class="screen" id="screen-objectives">
-  <div class="page-header">
-    <div>
-      <div class="page-title">Objetivos</div>
-      <div class="page-sub" id="objPeriod">Abril 2025</div>
-    </div>
-    <button class="btn btn-primary btn-sm" onclick="openObjModal()">+ Definir Objetivo</button>
-  </div>
-  <div class="cards-grid" id="objSummary"></div>
-  <div class="obj-grid" id="objGrid"></div>
-  <div class="info-box">
-    <strong>💬 Dica:</strong> Pergunte pelo WhatsApp "Quanto tenho disponível em restaurante?" para consultar seu saldo a qualquer hora.
   </div>
 </div>
 
@@ -595,18 +588,12 @@ input[type="file"] { display:none; }
         <input type="color" id="catColor" value="#007AFF" style="width:100%;height:42px;border:1px solid var(--border);border-radius:10px;padding:4px;cursor:pointer;background:var(--bg);margin-bottom:16px">
       </div>
     </div>
-    <div class="form-row">
-      <div>
-        <label class="form-label">Tipo</label>
-        <select class="form-input" id="catTipo" style="margin-bottom:0">
-          <option value="variavel">Variável</option>
-          <option value="fixo">Fixo</option>
-        </select>
-      </div>
-      <div>
-        <label class="form-label">Orçamento Mensal (R$)</label>
-        <input class="form-input" id="catOrcamento" type="number" placeholder="0.00" style="margin-bottom:0">
-      </div>
+    <div>
+      <label class="form-label">Tipo</label>
+      <select class="form-input" id="catTipo">
+        <option value="variavel">Variável</option>
+        <option value="fixo">Fixo</option>
+      </select>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('catModal')">Cancelar</button>
@@ -730,27 +717,18 @@ function changeMonth() {
   selectedMonth = parseInt(m);
   selectedYear = parseInt(y);
   // sync obj selector
-  const objSel = document.getElementById('objMonthSel');
-  if(objSel) objSel.value = val;
+
   loadDashboard();
 }
 
-function changeObjMonth() {
-  const val = document.getElementById('objMonthSel').value;
-  const [m,y] = val.split('-');
-  selectedMonth = parseInt(m);
-  selectedYear = parseInt(y);
-  const dashSel = document.getElementById('monthSel');
-  if(dashSel) dashSel.value = val;
-  loadObjectives();
-}
+
 
 function updateGreeting() {
   const h = new Date().getHours();
   document.getElementById('dashGreeting').textContent = `${h<12?'Bom dia':h<18?'Boa tarde':'Boa noite'}! 👋`;
   const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   document.getElementById('dashPeriod').textContent = `${months[selectedMonth-1]} ${selectedYear} · Resumo financeiro`;
-  document.getElementById('objPeriod').textContent = `${months[selectedMonth-1]} ${selectedYear}`;
+
 }
 
 function checkAiKey() {
@@ -770,8 +748,8 @@ function nav(name) {
     if(item.getAttribute('onclick')?.includes("'"+name+"'")) item.classList.add('active');
   });
   if(name==='transactions') loadTransactions();
-  if(name==='categories') renderCategories();
-  if(name==='objectives') loadObjectives();
+  if(name==='categories') { loadCategoryBudgets().then(()=>renderCategories()); }
+  
 }
 
 // =============================================
@@ -782,7 +760,25 @@ async function loadCategories() {
   if(!error && data) {
     CATS = data;
     populateCatFilters();
+    await loadCategoryBudgets();
   }
+}
+
+async function loadCategoryBudgets() {
+  const {data:objs} = await sbClient.from('objetivos').select('*').eq('mes',selectedMonth).eq('ano',selectedYear);
+  const {data:txMes} = await sbClient.from('transacoes').select('*').eq('confirmado',true)
+    .gte('data_transacao',`${selectedYear}-${String(selectedMonth).padStart(2,'0')}-01`)
+    .lt('data_transacao',selectedMonth===12?`${selectedYear+1}-01-01`:`${selectedYear}-${String(selectedMonth+1).padStart(2,'0')}-01`);
+  const budgetMap={};
+  (objs||[]).forEach(o=>budgetMap[o.categoria_id]=parseFloat(o.valor_objetivo));
+  const spendMap={};
+  (txMes||[]).filter(t=>t.tipo==='debito').forEach(t=>{
+    if(t.categoria_id) spendMap[t.categoria_id]=(spendMap[t.categoria_id]||0)+Math.abs(parseFloat(t.valor));
+  });
+  CATS.forEach(c=>{
+    c._budget = budgetMap[c.id]||0;
+    c._spent = spendMap[c.id]||0;
+  });
 }
 
 function populateCatFilters() {
@@ -800,8 +796,11 @@ function renderCategories() {
   if(!CATS.length) { list.innerHTML = '<div class="empty"><div class="empty-icon">🏷️</div><div class="empty-title">Nenhuma categoria</div><div class="empty-sub">Crie sua primeira categoria.</div></div>'; return; }
   list.innerHTML = CATS.map(cat => {
     const bg = cat.cor+'22';
-    const pct = cat.orcamento_mensal>0 ? Math.min(100,Math.round((cat._spent||0)/cat.orcamento_mensal*100)) : 0;
+    const orca = cat._budget||0;
+    const spent = cat._spent||0;
+    const pct = orca>0 ? Math.min(100,Math.round(spent/orca*100)) : 0;
     const barColor = pct>85?'var(--red)':pct>65?'var(--orange)':cat.cor;
+    const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
     return `<div class="category-item">
       <div class="cat-icon" style="background:${bg}">${cat.icone}</div>
       <div style="flex:1">
@@ -809,14 +808,31 @@ function renderCategories() {
           <div style="font-size:14px;font-weight:600">${cat.nome}</div>
           <span class="tag tag-${cat.tipo}">${cat.tipo}</span>
         </div>
-        ${cat.orcamento_mensal>0?`<div style="margin-top:8px"><div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${barColor}"></div></div><div class="progress-info"><span>${fmt(cat._spent||0)} de ${fmt(cat.orcamento_mensal)}</span><span>${pct}%</span></div></div>`:'<div style="font-size:12px;color:var(--text3);margin-top:4px">Sem orçamento definido</div>'}
+        ${orca>0?`<div style="margin-top:8px"><div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${barColor}"></div></div><div class="progress-info"><span>${fmt(spent)} de ${fmt(orca)} em ${months[selectedMonth-1]}/${selectedYear}</span><span>${pct}%</span></div></div>`:`<div style="font-size:12px;color:var(--text3);margin-top:4px">Sem orçamento em ${months[selectedMonth-1]}/${selectedYear}</div>`}
       </div>
-      <div style="display:flex;gap:6px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+        <button class="btn btn-ghost btn-sm" onclick="quickSetBudget('${cat.id}','${cat.nome}')">💰 Orçamento</button>
         <button class="btn btn-ghost btn-sm" onclick="openCatModal('${cat.id}')">✏️ Editar</button>
         <button class="btn btn-danger btn-sm" onclick="deleteCategory('${cat.id}')">✕</button>
       </div>
     </div>`;
   }).join('');
+}
+
+async function quickSetBudget(catId, catNome) {
+  const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const val = prompt(`Orçamento para "${catNome}" em ${months[selectedMonth-1]}/${selectedYear}:
+(deixe 0 para remover)`);
+  if(val === null) return;
+  const valor = parseFloat(val)||0;
+  const {error} = await sbClient.from('objetivos').upsert(
+    {categoria_id:catId, mes:selectedMonth, ano:selectedYear, valor_objetivo:valor},
+    {onConflict:'categoria_id,mes,ano'}
+  );
+  if(error) { toast('Erro ao salvar: '+error.message,'error'); return; }
+  toast(`Orçamento de ${fmt(valor)} definido para ${months[selectedMonth-1]}!`,'success');
+  await loadCategoryBudgets();
+  renderCategories();
 }
 
 function openCatModal(id) {
@@ -828,7 +844,7 @@ function openCatModal(id) {
     document.getElementById('catIcon').value = cat.icone;
     document.getElementById('catColor').value = cat.cor;
     document.getElementById('catTipo').value = cat.tipo;
-    document.getElementById('catOrcamento').value = cat.orcamento_mensal||0;
+
   } else {
     document.getElementById('catModalTitle').textContent = 'Nova Categoria';
     document.getElementById('catName').value='';
@@ -847,7 +863,7 @@ async function saveCategory() {
     icone: document.getElementById('catIcon').value.trim()||'💳',
     cor: document.getElementById('catColor').value.trim()||'#007AFF',
     tipo: document.getElementById('catTipo').value,
-    orcamento_mensal: parseFloat(document.getElementById('catOrcamento').value)||0
+    orcamento_mensal: 0
   };
   if(!data.nome) { toast('Informe o nome da categoria','error'); return; }
   let err;
@@ -909,6 +925,7 @@ async function loadDashboard() {
     : '<div class="empty"><div class="empty-icon">💳</div><div class="empty-title">Sem transações</div><div class="empty-sub">Importe seu primeiro extrato.</div></div>';
 
   await buildBarChart();
+  await loadObjectives();
 }
 
 async function buildBarChart() {
@@ -1270,7 +1287,8 @@ async function loadObjectives() {
   const totalGasto=Object.values(catSpend).reduce((s,v)=>s+v,0);
   const disponivel=totalOrca-totalGasto;
 
-  document.getElementById('objSummary').innerHTML=`
+  // summary cards removed - now in dashboard metrics
+  const _skip =`
     <div class="metric-card blue"><div class="metric-label">Orçamento Total</div><div class="metric-value" style="color:var(--accent)">${fmt(totalOrca)}</div><div class="metric-sub">meta do mês</div></div>
     <div class="metric-card red"><div class="metric-label">Gasto Atual</div><div class="metric-value" style="color:var(--red)">${fmt(totalGasto)}</div><div class="metric-sub">${totalOrca>0?Math.round(totalGasto/totalOrca*100):0}% do orçamento</div></div>
     <div class="metric-card green"><div class="metric-label">Disponível</div><div class="metric-value" style="color:${disponivel>=0?'var(--green)':'var(--red)'}">${fmt(Math.abs(disponivel))}</div><div class="metric-sub">${disponivel<0?'⚠️ Ultrapassado':'restante'}</div></div>`;
