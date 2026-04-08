@@ -7,6 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pluggy-connect-widget/dist/browser/index.js"></script>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 :root {
@@ -571,9 +572,10 @@ input[type="file"] { display:none; }
           </div>
           <div class="settings-item">
             <div class="settings-icon" style="background:rgba(52,199,89,0.1)">🏦</div>
-            <div style="flex:1"><div class="settings-label">Open Finance</div><div class="settings-sub">Sincronização em tempo real</div></div>
-            <span class="chip orange">Em breve</span>
+            <div style="flex:1"><div class="settings-label">Open Finance (Pluggy)</div><div class="settings-sub" id="pluggyStatus">Carregando...</div></div>
+            <button class="btn btn-primary btn-sm" onclick="openPluggyConnect()">+ Conectar Banco</button>
           </div>
+          <div id="pluggyItemsList" style="padding:0 20px 12px"></div>
         </div>
       </div>
       <div>
@@ -887,6 +889,7 @@ function nav(name) {
   if(name==='transactions') loadTransactions();
   if(name==='categories') { loadCategoryBudgets().then(()=>renderCategories()); }
   if(name==='upload') loadImportHistory();
+  if(name==='settings') loadPluggyItems();
 }
 
 // =============================================
@@ -2433,6 +2436,107 @@ async function saveManualTx() {
   toast('Transação incluída com sucesso!', 'success');
   await loadDashboard();
   await loadImportHistory();
+}
+
+// =============================================
+// PLUGGY INTEGRATION
+// =============================================
+const PLUGGY_FUNCTION_URL = 'https://nwibokwyxvobksvpdosn.supabase.co/functions/v1/pluggy';
+
+async function callPluggy(action, itemId) {
+  const sbKey = STORE.get('sbKey');
+  const body = { action };
+  if(itemId) body.itemId = itemId;
+  const res = await fetch(PLUGGY_FUNCTION_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + sbKey,
+    },
+    body: JSON.stringify(body)
+  });
+  return await res.json();
+}
+
+async function openPluggyConnect(itemId) {
+  toast('Conectando ao banco...', 'info');
+  const data = await callPluggy('connect_token', itemId);
+  if(!data.token) { toast('Erro ao obter token: ' + (data.error||''), 'error'); return; }
+
+  // Open Pluggy Connect Widget
+  const pluggyConnect = new PluggyConnect({
+    connectToken: data.token,
+    onSuccess: async (itemData) => {
+      toast('Banco conectado! Sincronizando transacoes...', 'info');
+      // Save item info
+      await sbClient.from('pluggy_items').upsert({
+        item_id: itemData.item.id,
+        nome_banco: itemData.item.connector?.name || 'Banco',
+        logo_url: itemData.item.connector?.imageUrl || '',
+        status: 'synced',
+        last_sync: new Date().toISOString()
+      }, {onConflict: 'item_id'});
+      // Sync transactions
+      const syncResult = await callPluggy('sync', itemData.item.id);
+      toast(syncResult.synced + ' transacoes sincronizadas!', 'success');
+      await loadPluggyItems();
+      await loadDashboard();
+    },
+    onError: (err) => {
+      toast('Erro na conexao: ' + err, 'error');
+    },
+    onClose: () => {
+      console.log('Pluggy widget closed');
+    }
+  });
+  pluggyConnect.init();
+}
+
+async function loadPluggyItems() {
+  const data = await callPluggy('list_items');
+  const items = data.items || [];
+  const el = document.getElementById('pluggyItemsList');
+  const statusEl = document.getElementById('pluggyStatus');
+  if(!el) return;
+
+  if(!items.length) {
+    if(statusEl) statusEl.textContent = 'Nenhum banco conectado';
+    el.innerHTML = '';
+    return;
+  }
+
+  if(statusEl) statusEl.textContent = items.length + ' banco(s) conectado(s)';
+
+  el.innerHTML = items.map(item => {
+    const lastSync = item.last_sync
+      ? new Date(item.last_sync).toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'})
+      : 'Nunca';
+    return `<div class="settings-item" style="padding:10px 0">
+      ${item.logo_url ? `<img src="${item.logo_url}" style="width:28px;height:28px;border-radius:6px;object-fit:contain">` : '<div class="settings-icon" style="background:rgba(0,122,255,0.1)">🏦</div>'}
+      <div style="flex:1">
+        <div class="settings-label">${item.nome_banco}</div>
+        <div class="settings-sub">Ultima sync: ${lastSync}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="syncPluggyItem('${item.item_id}')">🔄 Sync</button>
+      <button class="btn btn-danger btn-sm" style="margin-left:4px" onclick="deletePluggyItem('${item.item_id}')">✕</button>
+    </div>`;
+  }).join('');
+}
+
+async function syncPluggyItem(itemId) {
+  toast('Sincronizando...', 'info');
+  const result = await callPluggy('sync', itemId);
+  if(result.error) { toast('Erro: ' + result.error, 'error'); return; }
+  toast(result.synced + ' novas transacoes sincronizadas!', 'success');
+  await loadPluggyItems();
+  if(result.synced > 0) await loadDashboard();
+}
+
+async function deletePluggyItem(itemId) {
+  if(!confirm('Desconectar este banco? As transacoes ja importadas serao mantidas.')) return;
+  await callPluggy('delete_item', itemId);
+  await loadPluggyItems();
+  toast('Banco desconectado!', 'info');
 }
 
 // =============================================
