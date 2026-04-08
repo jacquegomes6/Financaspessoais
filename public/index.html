@@ -216,6 +216,10 @@ body { font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,s
 .wa-time { font-size:10px; color:#999; margin-top:4px; text-align:right; }
 
 input[type="file"] { display:none; }
+.obj-card { cursor: grab; user-select: none; transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s; }
+.obj-card:active { cursor: grabbing; }
+.obj-card.dragging { opacity: 0.4; transform: scale(0.97); box-shadow: 0 8px 32px rgba(0,0,0,0.18); }
+.obj-card.drag-over-card { box-shadow: 0 0 0 2px var(--accent); transform: scale(1.02); }
 ::-webkit-scrollbar { width:5px; }
 ::-webkit-scrollbar-thumb { background:rgba(0,0,0,0.15); border-radius:3px; }
 </style>
@@ -348,7 +352,10 @@ input[type="file"] { display:none; }
 
   <div class="chart-card">
     <div class="chart-header">
-      <div class="chart-title">🎯 Objetivos por Categoria</div>
+      <div>
+        <div class="chart-title">🎯 Objetivos por Categoria</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">Arraste os cards para reordenar</div>
+      </div>
       <button class="btn btn-ghost btn-sm" onclick="openObjModal()">+ Definir Objetivo</button>
     </div>
     <div class="obj-grid" id="objGrid" style="margin-top:4px"></div>
@@ -756,7 +763,7 @@ function nav(name) {
 // CATEGORIES
 // =============================================
 async function loadCategories() {
-  const {data,error} = await sbClient.from('categorias').select('*').eq('ativo',true).order('nome');
+  const {data,error} = await sbClient.from('categorias').select('*').eq('ativo',true).order('criado_em',{ascending:false});
   if(!error && data) {
     CATS = data;
     populateCatFilters();
@@ -829,21 +836,32 @@ async function createNewCategory() {
     nome: 'Nova Categoria', icone: '💳', cor: '#007AFF', tipo: 'variavel', orcamento_mensal: 0
   }).select().single();
   if(error) { toast('Erro: '+error.message,'error'); return; }
-  await loadCategories();
+  // Add to top of list
+  CATS.unshift(data);
+  populateCatFilters();
   renderCategories();
+  // Scroll to top of list
+  document.getElementById('catList').scrollIntoView({behavior:'smooth'});
+  // Focus first name field
+  setTimeout(()=>{
+    const first = document.querySelector('#catList .comment-field');
+    if(first) { first.focus(); first.select(); }
+  }, 100);
   toast('Categoria criada! Edite os campos abaixo.','success');
 }
 
 async function updateCatField(id, field, value) {
-  if(!value.trim()) return;
+  if(!value || !String(value).trim()) return;
   const update = {};
-  update[field] = value.trim();
+  update[field] = String(value).trim();
   const {error} = await sbClient.from('categorias').update(update).eq('id', id);
   if(error) { toast('Erro ao salvar: '+error.message, 'error'); return; }
   const cat = CATS.find(c=>c.id===id);
-  if(cat) cat[field] = value.trim();
-  // re-render icon bg if color changed
+  if(cat) cat[field] = String(value).trim();
   if(field==='cor' || field==='icone') renderCategories();
+  // Refresh objGrid in dashboard so new category appears
+  await loadCategoryBudgets();
+  loadObjectives();
   toast('Salvo!','success');
 }
 
@@ -1294,6 +1312,77 @@ async function loadImportHistory() {
 // =============================================
 // OBJECTIVES
 // =============================================
+// =============================================
+// DRAG & DROP CATEGORY ORDER
+// =============================================
+let catOrder = [];
+let dragSrcId = null;
+
+function saveCatOrder() {
+  localStorage.setItem('ft_catOrder', JSON.stringify(catOrder));
+}
+
+function loadCatOrder() {
+  try { return JSON.parse(localStorage.getItem('ft_catOrder') || '[]'); } catch(e) { return []; }
+}
+
+function getOrderedCats() {
+  const order = loadCatOrder();
+  if(!order.length) return CATS;
+  const map = {};
+  CATS.forEach(c => map[c.id] = c);
+  const ordered = order.filter(id => map[id]).map(id => map[id]);
+  const rest = CATS.filter(c => !order.includes(c.id));
+  return [...ordered, ...rest];
+}
+
+function setupObjDrag() {
+  const cards = document.querySelectorAll('.obj-card[data-cat-id]');
+  cards.forEach(card => {
+    card.setAttribute('draggable', 'true');
+
+    card.addEventListener('dragstart', e => {
+      dragSrcId = card.dataset.catId;
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      document.querySelectorAll('.obj-card').forEach(c => c.classList.remove('drag-over-card'));
+    });
+
+    card.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if(card.dataset.catId !== dragSrcId) {
+        document.querySelectorAll('.obj-card').forEach(c => c.classList.remove('drag-over-card'));
+        card.classList.add('drag-over-card');
+      }
+    });
+
+    card.addEventListener('dragleave', () => {
+      card.classList.remove('drag-over-card');
+    });
+
+    card.addEventListener('drop', e => {
+      e.preventDefault();
+      card.classList.remove('drag-over-card');
+      if(!dragSrcId || dragSrcId === card.dataset.catId) return;
+      // Reorder catOrder
+      const order = getOrderedCats().map(c => c.id);
+      const fromIdx = order.indexOf(dragSrcId);
+      const toIdx = order.indexOf(card.dataset.catId);
+      if(fromIdx < 0 || toIdx < 0) return;
+      order.splice(fromIdx, 1);
+      order.splice(toIdx, 0, dragSrcId);
+      catOrder = order;
+      saveCatOrder();
+      loadObjectives();
+    });
+  });
+}
+
 async function loadObjectives() {
   const mes=selectedMonth;
   const ano=selectedYear;
@@ -1321,7 +1410,7 @@ async function loadObjectives() {
     <div class="metric-card red"><div class="metric-label">Gasto Atual</div><div class="metric-value" style="color:var(--red)">${fmt(totalGasto)}</div><div class="metric-sub">${totalOrca>0?Math.round(totalGasto/totalOrca*100):0}% do orçamento</div></div>
     <div class="metric-card green"><div class="metric-label">Disponível</div><div class="metric-value" style="color:${disponivel>=0?'var(--green)':'var(--red)'}">${fmt(Math.abs(disponivel))}</div><div class="metric-sub">${disponivel<0?'⚠️ Ultrapassado':'restante'}</div></div>`;
 
-  document.getElementById('objGrid').innerHTML=CATS.map(cat=>{
+  document.getElementById('objGrid').innerHTML=getOrderedCats().map(cat=>{
     const orca=objMap[cat.id]||cat.orcamento_mensal||0;
     const gasto=catSpend[cat.id]||0;
     const pct=orca>0?Math.min(100,Math.round(gasto/orca*100)):0;
@@ -1329,7 +1418,7 @@ async function loadObjectives() {
     const barColor=pct>85?'var(--red)':pct>65?'var(--orange)':'var(--green)';
     const chipCls=pct>85?'red':pct>65?'orange':'green';
     const bg=cat.cor+'22';
-    return `<div class="obj-card">
+    return `<div class="obj-card" data-cat-id="${cat.id}" title="Arraste para reordenar">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
         <div>
           <div style="font-size:14px;font-weight:600">${cat.icone} ${cat.nome}</div>
@@ -1345,6 +1434,7 @@ async function loadObjectives() {
       </div>
     </div>`;
   }).join('');
+  setTimeout(setupObjDrag, 50);
 }
 
 function openObjModal() {
