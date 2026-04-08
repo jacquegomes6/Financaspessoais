@@ -2463,7 +2463,7 @@ async function openPluggyConnect(itemId) {
   if(!data.token) { toast('Erro ao obter token: ' + (data.error||'Verifique a Edge Function'), 'error'); return; }
 
   // Open Pluggy Connect via popup
-  const connectUrl = 'https://connect.pluggy.ai?connectToken=' + data.token;
+  const connectUrl = 'https://connect.pluggy.ai/#/?connectToken=' + data.token + '&includeSandbox=false';
   const popup = window.open(connectUrl, 'PluggyConnect', 'width=480,height=700,left=400,top=100');
 
   // Listen for messages from popup
