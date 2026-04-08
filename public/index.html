@@ -882,7 +882,7 @@ function nav(name) {
   });
   if(name==='transactions') loadTransactions();
   if(name==='categories') { loadCategoryBudgets().then(()=>renderCategories()); }
-  
+  if(name==='upload') loadImportHistory();
 }
 
 // =============================================
