@@ -663,6 +663,8 @@ let CATS = [];
 let ALL_TX = [];
 let pendingTx = [];
 let currentImportId = null;
+let selectedMonth = new Date().getMonth() + 1;
+let selectedYear = new Date().getFullYear();
 
 function initSupabase() {
   const url = STORE.get('sbUrl');
@@ -696,18 +698,56 @@ function resetConfig() {
 async function bootApp() {
   updateGreeting();
   await loadCategories();
+  populateMonthSelectors();
   await loadDashboard();
   await loadImportHistory();
   checkAiKey();
 }
 
+function populateMonthSelectors() {
+  const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const now = new Date();
+  let opts = '';
+  for(let y = now.getFullYear(); y >= now.getFullYear()-2; y--) {
+    const maxM = y === now.getFullYear() ? now.getMonth() : 11;
+    for(let m = maxM; m >= 0; m--) {
+      const sel = (m+1===selectedMonth && y===selectedYear) ? 'selected' : '';
+      opts += `<option value="${m+1}-${y}" ${sel}>${months[m]} ${y}</option>`;
+    }
+  }
+  ['monthSel','objMonthSel'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.innerHTML = opts;
+  });
+}
+
+function changeMonth() {
+  const val = document.getElementById('monthSel').value;
+  const [m,y] = val.split('-');
+  selectedMonth = parseInt(m);
+  selectedYear = parseInt(y);
+  // sync obj selector
+  const objSel = document.getElementById('objMonthSel');
+  if(objSel) objSel.value = val;
+  loadDashboard();
+}
+
+function changeObjMonth() {
+  const val = document.getElementById('objMonthSel').value;
+  const [m,y] = val.split('-');
+  selectedMonth = parseInt(m);
+  selectedYear = parseInt(y);
+  const dashSel = document.getElementById('monthSel');
+  if(dashSel) dashSel.value = val;
+  loadObjectives();
+}
+
 function updateGreeting() {
   const h = new Date().getHours();
   document.getElementById('dashGreeting').textContent = `${h<12?'Bom dia':h<18?'Boa tarde':'Boa noite'}! 👋`;
-  const now = new Date();
   const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-  document.getElementById('dashPeriod').textContent = `${months[now.getMonth()]} ${now.getFullYear()} · Resumo financeiro`;
-  document.getElementById('objPeriod').textContent = `${months[now.getMonth()]} ${now.getFullYear()}`;
+  document.getElementById('dashPeriod').textContent = `${months[selectedMonth-1]} ${selectedYear} · Resumo financeiro`;
+  document.getElementById('objPeriod').textContent = `${months[selectedMonth-1]} ${selectedYear}`;
 }
 
 function checkAiKey() {
@@ -829,9 +869,10 @@ async function deleteCategory(id) {
 // DASHBOARD
 // =============================================
 async function loadDashboard() {
-  const now = new Date();
-  const mes = now.getMonth()+1;
-  const ano = now.getFullYear();
+  const mes = selectedMonth;
+  const ano = selectedYear;
+  updateGreeting();
+  populateMonthSelectors();
 
   // Busca transações do mês
   const {data:txMes} = await sbClient.from('transacoes')
@@ -1206,8 +1247,8 @@ async function loadImportHistory() {
 // OBJECTIVES
 // =============================================
 async function loadObjectives() {
-  const now=new Date();
-  const mes=now.getMonth()+1, ano=now.getFullYear();
+  const mes=selectedMonth;
+  const ano=selectedYear;
   const {data:objs}=await sbClient.from('objetivos').select('*').eq('mes',mes).eq('ano',ano);
   const {data:txMes}=await sbClient.from('transacoes').select('*').eq('confirmado',true)
     .gte('data_transacao',`${ano}-${String(mes).padStart(2,'0')}-01`)
