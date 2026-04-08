@@ -1171,11 +1171,27 @@ async function parsePDF(file) {
     const buf = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({data: buf}).promise;
 
-    // Extract text with position info from all pages
+    // Extract text with position info - stop at internal summary sections
     let allItems = [];
+    let stopExtraction = false;
     for(let p = 1; p <= pdf.numPages; p++) {
+      if(stopExtraction) break;
       const page = await pdf.getPage(p);
       const tc = await page.getTextContent();
+      const pageTexts = tc.items.map(i => i.str).join(' ').toLowerCase();
+      // Stop before internal accounting tables
+      if(p > 1 && (
+        pageTexts.includes('movimentacao - aplicacoes') ||
+        pageTexts.includes('movimentação - aplicações/resgates') ||
+        pageTexts.includes('compras a debito total') ||
+        pageTexts.includes('debitos automaticos efetuados') ||
+        pageTexts.includes('pacote de servicos') ||
+        pageTexts.includes('notas explicativas') ||
+        pageTexts.includes('indicadores de mercado')
+      )) {
+        stopExtraction = true;
+        break;
+      }
       tc.items.forEach(item => {
         if(item.str && item.str.trim()) {
           allItems.push({
@@ -1397,6 +1413,14 @@ function filterBankInternalLines(txs) {
 
     // Skip if description is purely numeric (saldo values)
     if(/^\d[\d\.\s,]*\d$/.test(desc) && desc.length < 15) return false;
+
+    // Skip lines from the CDB table (pattern: "DD/MM 0 00 NNNN NN 0 NN...")
+    if(/^\d{2}\/\d{2}\s+[\d\s]+$/.test(desc)) return false;
+
+    // Skip lines that are mostly numbers with spaces (table rows)
+    const wordCount = desc.split(/\s+/).length;
+    const numCount = desc.split(/\s+/).filter(w => /^\d+([,\.]\d+)?$/.test(w)).length;
+    if(wordCount > 3 && numCount / wordCount > 0.6) return false;
 
     // Skip rendimento centavos (< R$1 credito with no real description)
     if(tx.tipo === 'credito' && tx.valor < 1.00) return false;
