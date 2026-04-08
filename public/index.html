@@ -7,6 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://unpkg.com/pluggy-connect-sdk/dist/browser/index.js"></script>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 :root {
@@ -2462,51 +2463,44 @@ async function openPluggyConnect(itemId) {
   const data = await callPluggy('connect_token', itemId);
   if(!data.token) { toast('Erro ao obter token: ' + (data.error||'Verifique a Edge Function'), 'error'); return; }
 
-  // Open Pluggy Connect via popup
-  const connectUrl = 'https://connect.pluggy.ai/#/?connectToken=' + data.token + '&includeSandbox=false';
-  const popup = window.open(connectUrl, 'PluggyConnect', 'width=480,height=700,left=400,top=100');
+  try {
+    const PluggyConnectSDK = window.PluggyConnect || window.pluggyConnectSdk?.default;
+    if(!PluggyConnectSDK) throw new Error('SDK nao carregado');
 
-  // Listen for messages from popup
-  const handler = async (event) => {
-    if(!event.data || event.data.type !== 'pluggy:connect') return;
-    window.removeEventListener('message', handler);
-
-    if(event.data.event === 'success') {
-      const itemId = event.data.itemId || event.data.item?.id;
-      const connName = event.data.item?.connector?.name || 'Banco';
-      const logoUrl = event.data.item?.connector?.imageUrl || '';
-      toast('Banco conectado! Sincronizando...', 'info');
-      if(popup) popup.close();
-
-      // Save item
-      await sbClient.from('pluggy_items').upsert({
-        item_id: itemId,
-        nome_banco: connName,
-        logo_url: logoUrl,
-        status: 'syncing',
-        last_sync: null
-      }, {onConflict: 'item_id'});
-
-      // Sync transactions
-      const syncResult = await callPluggy('sync', itemId);
-      if(syncResult.error) { toast('Erro ao sincronizar: ' + syncResult.error, 'error'); return; }
-      toast(syncResult.synced + ' transacoes sincronizadas!', 'success');
-      await loadPluggyItems();
-      await loadDashboard();
-    } else if(event.data.event === 'error') {
-      toast('Erro na conexao com o banco', 'error');
-    }
-  };
-  window.addEventListener('message', handler);
-
-  // Fallback: check if popup closed manually after 2 min
-  const timer = setInterval(() => {
-    if(popup && popup.closed) {
-      clearInterval(timer);
-      window.removeEventListener('message', handler);
-      loadPluggyItems();
-    }
-  }, 2000);
+    const pluggyConnect = new PluggyConnectSDK({
+      connectToken: data.token,
+      includeSandbox: false,
+      onSuccess: async (itemData) => {
+        const connItemId = itemData?.item?.id || itemData?.itemId;
+        const connName = itemData?.item?.connector?.name || 'Banco';
+        const logoUrl = itemData?.item?.connector?.imageUrl || '';
+        toast('Banco conectado! Sincronizando transacoes...', 'info');
+        await sbClient.from('pluggy_items').upsert({
+          item_id: connItemId,
+          nome_banco: connName,
+          logo_url: logoUrl,
+          status: 'syncing',
+          last_sync: null
+        }, {onConflict: 'item_id'});
+        const syncResult = await callPluggy('sync', connItemId);
+        if(syncResult.error) { toast('Erro ao sincronizar: ' + syncResult.error, 'error'); return; }
+        toast(syncResult.synced + ' transacoes sincronizadas!', 'success');
+        await loadPluggyItems();
+        await loadDashboard();
+      },
+      onError: (error) => {
+        toast('Erro na conexao: ' + (error?.message || error), 'error');
+      },
+      onClose: () => {
+        loadPluggyItems();
+      }
+    });
+    pluggyConnect.init();
+  } catch(e) {
+    // Fallback: open meu.pluggy.ai for manual connection
+    toast('Abrindo Pluggy Connect...', 'info');
+    window.open('https://meu.pluggy.ai', '_blank', 'width=500,height=700');
+  }
 }
 
 async function loadPluggyItems() {
