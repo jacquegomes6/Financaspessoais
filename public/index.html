@@ -1843,20 +1843,7 @@ async function confirmImport() {
   const btn=document.getElementById('confirmBtn');
   btn.textContent='Salvando...'; btn.disabled=true;
 
-  // Cria registro de importação com timestamp real
-  const now = new Date();
-  const nomeArq = window._lastUploadFileName || `importacao_${now.toLocaleDateString('pt-BR')}`;
-  const tipoArq = nomeArq.toLowerCase().endsWith('.ofx') ? 'ofx' :
-                  nomeArq.toLowerCase().endsWith('.pdf') ? 'pdf' :
-                  nomeArq.toLowerCase().match(/\.xlsx?$/) ? 'excel' : 'csv';
-  const {data:imp}=await sbClient.from('importacoes').insert({
-    nome_arquivo: nomeArq,
-    tipo_arquivo: tipoArq,
-    status: 'concluido',
-    total_transacoes: toSave.length,
-    criado_em: now.toISOString()
-  }).select().single();
-
+  // Monta transações primeiro
   const toSave=[];
   const padroes=[];
 
@@ -1868,7 +1855,6 @@ async function confirmImport() {
     const dtTx=document.getElementById('dtTx'+i).value;
     const dtPay=document.getElementById('dtPay'+i).value;
     toSave.push({
-      importacao_id:imp?.id,
       categoria_id:catId||null,
       data_transacao:dtTx,
       data_pagamento:dtPay||dtTx,
@@ -1881,6 +1867,23 @@ async function confirmImport() {
     });
     if(catId) padroes.push({texto_padrao:tx.descricao.substring(0,80),categoria_id:catId});
   });
+
+  // Cria registro de importação com timestamp real
+  const now = new Date();
+  const nomeArq = window._lastUploadFileName || `importacao_${now.toLocaleDateString('pt-BR')}`;
+  const tipoArq = nomeArq.toLowerCase().endsWith('.ofx') ? 'ofx' :
+                  nomeArq.toLowerCase().endsWith('.pdf') ? 'pdf' :
+                  nomeArq.toLowerCase().match(/xlsx/) ? 'excel' : 'csv';
+  const {data:imp} = await sbClient.from('importacoes').insert({
+    nome_arquivo: nomeArq,
+    tipo_arquivo: tipoArq,
+    status: 'concluido',
+    total_transacoes: toSave.length,
+    criado_em: now.toISOString()
+  }).select().single();
+
+  // Vincula importacao_id às transações
+  if(imp?.id) toSave.forEach(t => t.importacao_id = imp.id);
 
   const {error}=await sbClient.from('transacoes').insert(toSave);
   if(error) { toast('Erro ao salvar: '+error.message,'error'); btn.textContent='✓ Confirmar Importação'; btn.disabled=false; return; }
