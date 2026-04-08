@@ -1899,18 +1899,70 @@ function cancelReview() {
 }
 
 async function loadImportHistory() {
-  const {data}=await sbClient.from('importacoes').select('*').order('criado_em',{ascending:false}).limit(10);
-  const el=document.getElementById('importHistory');
-  if(!data?.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📂</div><div class="empty-title">Nenhuma importação ainda</div></div>'; return; }
-  el.innerHTML='<div class="tx-list">'+data.map(imp=>`
-    <div class="tx-item">
-      <div class="tx-icon" style="background:rgba(52,199,89,0.1)">📊</div>
-      <div class="tx-info">
-        <div class="tx-name">${imp.nome_arquivo}</div>
-        <div class="tx-date">${new Date(imp.criado_em).toLocaleDateString('pt-BR')} · ${imp.total_transacoes} transações</div>
-      </div>
-      <span class="chip green">${imp.status}</span>
-    </div>`).join('')+'</div>';
+  const el = document.getElementById('importHistory');
+  if(!el) return;
+
+  // Load from importacoes table
+  const {data: imps} = await sbClient.from('importacoes').select('*').order('criado_em',{ascending:false}).limit(20);
+
+  // Also load transaction summary grouped by month
+  const {data: txSummary} = await sbClient.from('transacoes')
+    .select('data_transacao, confirmado')
+    .eq('confirmado', true)
+    .order('data_transacao', {ascending:false});
+
+  // Group transactions by month
+  const monthMap = {};
+  (txSummary||[]).forEach(t => {
+    if(!t.data_transacao) return;
+    const d = new Date(t.data_transacao+'T00:00:00');
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    monthMap[key] = (monthMap[key]||0) + 1;
+  });
+
+  const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const monthEntries = Object.entries(monthMap).sort((a,b)=>b[0].localeCompare(a[0]));
+
+  let html = '<div class="tx-list">';
+
+  // Show importacoes records if they exist
+  if(imps?.length) {
+    imps.forEach(imp => {
+      const date = new Date(imp.criado_em).toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit'});
+      const icon = imp.tipo_arquivo==='pdf'?'📄':imp.tipo_arquivo==='excel'?'📊':'📋';
+      html += `<div class="tx-item">
+        <div class="tx-icon" style="background:rgba(52,199,89,0.1)">${icon}</div>
+        <div class="tx-info">
+          <div class="tx-name">${imp.nome_arquivo}</div>
+          <div class="tx-date">${date} · ${imp.total_transacoes} transações</div>
+        </div>
+        <span class="chip green">${imp.status}</span>
+      </div>`;
+    });
+  }
+
+  // Show monthly summary from actual transactions
+  if(monthEntries.length) {
+    if(imps?.length) html += '<div style="padding:10px 16px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;border-top:1px solid var(--border);margin-top:4px">Resumo por mês</div>';
+    monthEntries.forEach(([key, count]) => {
+      const [y, m] = key.split('-');
+      html += `<div class="tx-item">
+        <div class="tx-icon" style="background:rgba(0,122,255,0.1)">📅</div>
+        <div class="tx-info">
+          <div class="tx-name">${months[parseInt(m)-1]} ${y}</div>
+          <div class="tx-date">${count} transações importadas</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="nav('transactions');setTimeout(()=>{document.getElementById('txMonthFilter').value='${parseInt(m)}-${parseInt(y)-1900>99?parseInt(y):parseInt(y)}';filterTx();},200)">Ver →</button>
+      </div>`;
+    });
+  }
+
+  if(!imps?.length && !monthEntries.length) {
+    html += '<div class="empty"><div class="empty-icon">📂</div><div class="empty-title">Nenhuma importação ainda</div><div class="empty-sub">Importe seu primeiro extrato acima.</div></div>';
+  }
+
+  html += '</div>';
+  el.innerHTML = html;
 }
 
 // =============================================
