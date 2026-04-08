@@ -101,6 +101,8 @@ body { font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,s
 .bar:hover { opacity:0.7; }
 .bar-income { background:var(--green); }
 .bar-expense { background:var(--red); }
+.bar-budget-income { background:transparent; border:2px dashed var(--green); border-radius:4px 4px 0 0; opacity:0.7; }
+.bar-budget-expense { background:transparent; border:2px dashed var(--red); border-radius:4px 4px 0 0; opacity:0.7; }
 .bar-label { font-size:10px; color:var(--text3); }
 .legend { display:flex; gap:16px; flex-wrap:wrap; }
 .legend-item { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text2); }
@@ -335,6 +337,8 @@ input[type="file"] { display:none; }
           <div class="legend">
             <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div>Receitas</div>
             <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>Despesas</div>
+            <div class="legend-item"><div style="width:8px;height:8px;border:2px dashed var(--green);border-radius:2px"></div>Meta Receita</div>
+            <div class="legend-item"><div style="width:8px;height:8px;border:2px dashed var(--red);border-radius:2px"></div>Meta Despesa</div>
           </div>
         </div>
       </div>
@@ -1131,14 +1135,58 @@ async function buildBarChart() {
   }
 
   if(!catFilter) {
-    // No filter: use the view
-    const {data} = await sbClient.from('evolucao_mensal').select('*').order('ano').order('mes');
+    // No filter: use the view + fetch objectives for budget bars
+    const [{data}, {data:objs}] = await Promise.all([
+      sbClient.from('evolucao_mensal').select('*').order('ano').order('mes'),
+      sbClient.from('objetivos').select('*')
+    ]);
     if(!data||!data.length) { chart.innerHTML='<div style="color:var(--text3);font-size:13px">Sem dados</div>'; return; }
-    const maxVal = Math.max(...data.map(d=>Math.max(parseFloat(d.total_receitas||0),parseFloat(d.total_despesas||0))),1);
-    chart.innerHTML = data.slice(-6).map(d=>{
+
+    // Build budget map by mes/ano: sum all category budgets
+    const budgetMap = {};
+    (objs||[]).forEach(o => {
+      const key = `${o.ano}-${String(o.mes).padStart(2,'0')}`;
+      const cat = CATS.find(c=>c.id===o.categoria_id);
+      if(!cat) return;
+      if(!budgetMap[key]) budgetMap[key] = {receita:0, despesa:0};
+      if(cat.natureza==='receita') budgetMap[key].receita += parseFloat(o.valor_objetivo||0);
+      else budgetMap[key].despesa += parseFloat(o.valor_objetivo||0);
+    });
+    // Fallback: use orcamento_mensal from cats if no objectives
+    CATS.forEach(c => {
+      if(!c.orcamento_mensal) return;
+      data.slice(-6).forEach(d => {
+        const key = `${d.ano}-${String(parseInt(d.mes)).padStart(2,'0')}`;
+        if(budgetMap[key]) return; // already has explicit objective
+        if(!budgetMap[key]) budgetMap[key] = {receita:0, despesa:0};
+        if(c.natureza==='receita') budgetMap[key].receita += parseFloat(c.orcamento_mensal||0);
+        else budgetMap[key].despesa += parseFloat(c.orcamento_mensal||0);
+      });
+    });
+
+    const last6 = data.slice(-6);
+    const maxVal = Math.max(...last6.map(d=>{
+      const key = `${d.ano}-${String(parseInt(d.mes)).padStart(2,'0')}`;
+      const b = budgetMap[key]||{receita:0,despesa:0};
+      return Math.max(parseFloat(d.total_receitas||0),parseFloat(d.total_despesas||0),b.receita,b.despesa);
+    }),1);
+
+    chart.innerHTML = last6.map(d=>{
+      const key = `${d.ano}-${String(parseInt(d.mes)).padStart(2,'0')}`;
+      const b = budgetMap[key]||{receita:0,despesa:0};
       const ih = Math.round((parseFloat(d.total_receitas||0)/maxVal)*110);
       const eh = Math.round((parseFloat(d.total_despesas||0)/maxVal)*110);
-      return `<div class="bar-group"><div class="bars"><div class="bar bar-income" style="height:${ih}px" title="Receita: ${fmt(d.total_receitas)}"></div><div class="bar bar-expense" style="height:${eh}px" title="Despesa: ${fmt(d.total_despesas)}"></div></div><div class="bar-label">${months[parseInt(d.mes)-1]}</div></div>`;
+      const ibh = b.receita>0?Math.round((b.receita/maxVal)*110):0;
+      const ebh = b.despesa>0?Math.round((b.despesa/maxVal)*110):0;
+      return `<div class="bar-group">
+        <div class="bars" style="align-items:flex-end;position:relative">
+          ${ibh>0?`<div class="bar bar-budget-income" style="height:${ibh}px;width:16px" title="Meta Receita: ${fmt(b.receita)}"></div>`:'<div style="width:16px"></div>'}
+          <div class="bar bar-income" style="height:${ih}px" title="Receita: ${fmt(d.total_receitas)}"></div>
+          <div class="bar bar-expense" style="height:${eh}px" title="Despesa: ${fmt(d.total_despesas)}"></div>
+          ${ebh>0?`<div class="bar bar-budget-expense" style="height:${ebh}px;width:16px" title="Meta Despesa: ${fmt(b.despesa)}"></div>`:'<div style="width:16px"></div>'}
+        </div>
+        <div class="bar-label">${months[parseInt(d.mes)-1]}</div>
+      </div>`;
     }).join('');
     return;
   }
@@ -1169,14 +1217,38 @@ async function buildBarChart() {
     else monthData[key].despesas += val;
   });
 
+  // Fetch objectives for this category
+  const {data:catObjs} = await sbClient.from('objetivos').select('*').eq('categoria_id', catFilter);
+  const catObjMap = {};
+  (catObjs||[]).forEach(o => {
+    const key = `${o.ano}-${String(o.mes).padStart(2,'0')}`;
+    catObjMap[key] = parseFloat(o.valor_objetivo||0);
+  });
+  const catMeta = CATS.find(c=>c.id===catFilter)?.orcamento_mensal||0;
+
   const entries = Object.values(monthData);
-  const maxVal = Math.max(...entries.map(d=>Math.max(d.receitas,d.despesas)),1);
-  const cat = CATS.find(c=>c.id===catFilter);
+  const maxVal = Math.max(...entries.map(d=>{
+    const key = `${d.ano}-${String(d.mes).padStart(2,'0')}`;
+    const budget = catObjMap[key]||catMeta||0;
+    return Math.max(d.receitas,d.despesas,budget);
+  }),1);
 
   chart.innerHTML = entries.map(d=>{
+    const key = `${d.ano}-${String(d.mes).padStart(2,'0')}`;
+    const budget = catObjMap[key]||catMeta||0;
     const ih = Math.round((d.receitas/maxVal)*110);
     const eh = Math.round((d.despesas/maxVal)*110);
-    return `<div class="bar-group"><div class="bars"><div class="bar bar-income" style="height:${ih}px" title="Receita: ${fmt(d.receitas)}"></div><div class="bar bar-expense" style="height:${eh}px" title="Despesa: ${fmt(d.despesas)}"></div></div><div class="bar-label">${months[d.mes-1]}</div></div>`;
+    const bh = budget>0?Math.round((budget/maxVal)*110):0;
+    const isReceita = CATS.find(c=>c.id===catFilter)?.natureza==='receita';
+    return `<div class="bar-group">
+      <div class="bars" style="align-items:flex-end">
+        ${bh>0&&isReceita?`<div class="bar bar-budget-income" style="height:${bh}px;width:16px" title="Meta: ${fmt(budget)}"></div>`:''}
+        <div class="bar bar-income" style="height:${ih}px" title="Receita: ${fmt(d.receitas)}"></div>
+        <div class="bar bar-expense" style="height:${eh}px" title="Despesa: ${fmt(d.despesas)}"></div>
+        ${bh>0&&!isReceita?`<div class="bar bar-budget-expense" style="height:${bh}px;width:16px" title="Meta: ${fmt(budget)}"></div>`:''}
+      </div>
+      <div class="bar-label">${months[d.mes-1]}</div>
+    </div>`;
   }).join('');
 }
 
