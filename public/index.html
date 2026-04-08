@@ -386,10 +386,18 @@ input[type="file"] { display:none; }
         <option value="credito">Só Créditos</option>
       </select>
     </div>
+    <div id="bulkBar" style="display:none;padding:10px 20px;border-bottom:1px solid var(--border);background:rgba(255,59,48,0.04);display:none;align-items:center;gap:12px">
+      <span id="bulkCount" style="font-size:13px;font-weight:600;color:var(--text2)">0 selecionadas</span>
+      <button class="btn btn-danger btn-sm" onclick="deleteSelected()">🗑 Excluir selecionadas</button>
+      <button class="btn btn-ghost btn-sm" onclick="clearSelection()">Desmarcar todas</button>
+    </div>
     <div style="overflow-x:auto">
       <table id="txTable" style="width:100%;border-collapse:collapse;font-size:13px">
         <thead>
           <tr style="background:var(--bg)">
+            <th style="padding:10px 14px;border-bottom:1px solid var(--border);width:36px">
+              <input type="checkbox" class="confirm-cb" id="selectAllCb" onchange="toggleSelectAll(this.checked)" title="Selecionar todas">
+            </th>
             <th style="text-align:left;padding:10px 14px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;border-bottom:1px solid var(--border);white-space:nowrap">Data</th>
             <th style="text-align:left;padding:10px 14px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;border-bottom:1px solid var(--border)">Descrição</th>
             <th style="text-align:left;padding:10px 14px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;border-bottom:1px solid var(--border)">Categoria</th>
@@ -1153,6 +1161,10 @@ function populateMonthFilter() {
 }
 
 function filterTx() {
+  txSelected.clear();
+  const allCb = document.getElementById('selectAllCb');
+  if(allCb) allCb.checked = false;
+  updateBulkBar();
   const q = document.getElementById('txSearch').value.toLowerCase();
   const cat = document.getElementById('txCatFilter').value;
   const mon = document.getElementById('txMonthFilter').value;
@@ -1186,7 +1198,10 @@ function renderTxList(txs) {
     const catOpts = CATS.map(c =>
       `<option value="${c.id}" ${c.id===tx.categoria_id?'selected':''}>${c.icone} ${c.nome}</option>`
     ).join('');
-    return `<tr style="border-bottom:1px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">
+    return `<tr style="border-bottom:1px solid var(--border);transition:background 0.1s" id="txrow-${tx.id}" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=txSelected.has('${tx.id}')?'rgba(255,59,48,0.04)':''">
+      <td style="padding:10px 14px;vertical-align:middle;width:36px">
+        <input type="checkbox" class="confirm-cb" id="cb-${tx.id}" onchange="toggleTxSelect('${tx.id}',this.checked)">
+      </td>
       <td style="padding:10px 14px;white-space:nowrap;vertical-align:middle">
         <div style="font-size:13px;font-weight:500">${dateStr}</div>
         ${payStr !== dateStr ? `<div style="font-size:11px;color:var(--text3)">fat: ${payStr}</div>` : ''}
@@ -2072,6 +2087,72 @@ async function exportCSV() {
   const blob=new Blob(['\uFEFF'+header+rows],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='fintrack_export.csv'; a.click();
   toast('Exportado com sucesso!','success');
+}
+
+// =============================================
+// BULK SELECTION
+// =============================================
+let txSelected = new Set();
+
+function toggleTxSelect(id, checked) {
+  if(checked) txSelected.add(id);
+  else txSelected.delete(id);
+  updateBulkBar();
+  // Highlight row
+  const row = document.getElementById('txrow-' + id);
+  if(row) row.style.background = checked ? 'rgba(255,59,48,0.04)' : '';
+}
+
+function toggleSelectAll(checked) {
+  const cbs = document.querySelectorAll('#allTxList input[type=checkbox]');
+  cbs.forEach(cb => {
+    const id = cb.id.replace('cb-','');
+    cb.checked = checked;
+    if(checked) txSelected.add(id);
+    else txSelected.delete(id);
+    const row = document.getElementById('txrow-' + id);
+    if(row) row.style.background = checked ? 'rgba(255,59,48,0.04)' : '';
+  });
+  updateBulkBar();
+}
+
+function clearSelection() {
+  txSelected.clear();
+  document.querySelectorAll('#allTxList input[type=checkbox]').forEach(cb => cb.checked = false);
+  const allCb = document.getElementById('selectAllCb');
+  if(allCb) allCb.checked = false;
+  updateBulkBar();
+  document.querySelectorAll('#allTxList tr').forEach(r => r.style.background = '');
+}
+
+function updateBulkBar() {
+  const bar = document.getElementById('bulkBar');
+  const count = document.getElementById('bulkCount');
+  if(!bar) return;
+  if(txSelected.size > 0) {
+    bar.style.display = 'flex';
+    count.textContent = txSelected.size + ' selecionada' + (txSelected.size > 1 ? 's' : '');
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+async function deleteSelected() {
+  if(!txSelected.size) return;
+  const n = txSelected.size;
+  if(!confirm(`Excluir ${n} transação${n>1?'ões':''}? Esta ação não pode ser desfeita.`)) return;
+  const ids = [...txSelected];
+  const {error} = await sbClient.from('transacoes').delete().in('id', ids);
+  if(error) { toast('Erro ao excluir: ' + error.message, 'error'); return; }
+  ALL_TX = ALL_TX.filter(t => !txSelected.has(t.id));
+  txSelected.clear();
+  filterTx();
+  const allCb = document.getElementById('selectAllCb');
+  if(allCb) allCb.checked = false;
+  updateBulkBar();
+  document.getElementById('txCount').textContent = `${ALL_TX.length} transações carregadas`;
+  toast(`${n} transação${n>1?'ões':''} excluída${n>1?'s':''}!`, 'info');
+  await loadDashboard();
 }
 
 // =============================================
