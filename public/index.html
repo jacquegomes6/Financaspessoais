@@ -1268,7 +1268,7 @@ async function convertPDFtoCSVwithAI(items, rawText, banks) {
     });
 
   // Truncate to fit context
-  const structuredText = lines.slice(0, 300).join('\n');
+  const structuredText = lines.slice(0, 600).join('\n');
 
   const bankHint = banks.isItau ? 'Itau' : banks.isBradesco ? 'Bradesco' :
                    banks.isNubank ? 'Nubank' : banks.isSantander ? 'Santander' : 'banco brasileiro';
@@ -1278,6 +1278,31 @@ async function convertPDFtoCSVwithAI(items, rawText, banks) {
     return buildItauCSVFallback(lines);
   }
 
+  // If too many lines, process in chunks of 500 lines with overlap
+  if(lines.length > 550) {
+    toast('Extrato grande, processando em partes...', 'info');
+    const chunkSize = 500;
+    const overlap = 50;
+    let allCsvLines = ['data,descricao,valor,tipo'];
+    for(let start = 0; start < lines.length; start += chunkSize - overlap) {
+      const chunk = lines.slice(start, start + chunkSize);
+      const chunkText = chunk.join('\n');
+      toast('Processando parte ' + Math.ceil(start/chunkSize + 1) + '...', 'info');
+      const chunkCsv = await callAIForCSV(chunkText, bankHint);
+      if(chunkCsv) {
+        const chunkLines = chunkCsv.split('\n').filter(l => l.trim() && !l.startsWith('data,'));
+        allCsvLines = allCsvLines.concat(chunkLines);
+      }
+    }
+    return allCsvLines.join('\n');
+  }
+
+  return await callAIForCSV(structuredText, bankHint);
+}
+
+async function callAIForCSV(structuredText, bankHint) {
+  const apiKey = STORE.get('anthropicKey');
+  if(!apiKey) return null;
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -1289,7 +1314,7 @@ async function convertPDFtoCSVwithAI(items, rawText, banks) {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 4000,
+        max_tokens: 8000,
         messages: [{
           role: 'user',
           content: 'Voce e um especialista em extratos bancarios brasileiros do ' + bankHint + '.\n\n' +
@@ -1323,7 +1348,7 @@ async function convertPDFtoCSVwithAI(items, rawText, banks) {
 
   } catch(err) {
     console.error('AI CSV conversion error:', err);
-    return buildItauCSVFallback(lines);
+    return null;
   }
 }
 
