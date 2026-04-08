@@ -313,7 +313,7 @@ input[type="file"] { display:none; }
 <div class="screen active" id="screen-dashboard">
   <div class="page-header">
     <div>
-      <div class="page-title" id="dashGreeting">Olá! 👋</div>
+      <div class="page-title" id="dashGreeting">Olá! &#128075;</div>
       <div class="page-sub" id="dashPeriod">Carregando...</div>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
@@ -733,7 +733,7 @@ function changeMonth() {
 
 function updateGreeting() {
   const h = new Date().getHours();
-  document.getElementById('dashGreeting').textContent = `${h<12?'Bom dia':h<18?'Boa tarde':'Boa noite'}! 👋`;
+  document.getElementById('dashGreeting').textContent = `${h<12?'Bom dia':h<18?'Boa tarde':'Boa noite'}! &#128075;`;
   const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   document.getElementById('dashPeriod').textContent = `${months[selectedMonth-1]} ${selectedYear} · Resumo financeiro`;
 
@@ -1186,8 +1186,7 @@ async function parsePDF(file) {
       // Sort lines top-to-bottom, items left-to-right
       Object.keys(lines).sort((a,b)=>b-a).forEach(y => {
         const sorted = lines[y].sort((a,b)=>a.x-b.x);
-        fullText += sorted.map(i=>i.text).join(' ') + '
-';
+        fullText += sorted.map(i=>i.text).join(' ') + '\n';
       });
     }
     if(!fullText.trim()) { toast('Não foi possível extrair texto do PDF. Tente converter para Excel ou CSV.','error'); return []; }
@@ -1204,8 +1203,7 @@ async function parsePDF(file) {
 async function parsePDFWithAI(text, filename) {
   const apiKey = STORE.get('anthropicKey');
   // Truncate text if too long
-  const truncated = text.length > 8000 ? text.substring(0, 8000) + '
-...(truncado)' : text;
+  const truncated = text.length > 8000 ? text.substring(0, 8000) + '...(truncado)' : text;
   if(!apiKey) {
     // Try rule-based parsing as fallback
     return parsePDFRuleBased(text);
@@ -1224,27 +1222,23 @@ async function parsePDFWithAI(text, filename) {
         max_tokens: 2000,
         messages: [{
           role: 'user',
-          content: `Você é um sistema de extração de dados financeiros. Analise o texto abaixo extraído de um extrato bancário ou fatura de cartão de crédito brasileiro e extraia TODAS as transações.
-
-Retorne APENAS um JSON array sem markdown, nenhum texto antes ou depois.
-Formato: [{"data_transacao":"YYYY-MM-DD","data_pagamento":"YYYY-MM-DD","descricao":"texto","valor":123.45,"tipo":"debito"}]
-
-Regras:
-- tipo: "debito" para gastos/saídas, "credito" para entradas/pagamentos recebidos
-- valor: sempre positivo (número, sem R$)
-- data_pagamento: para cartão de crédito use a data da fatura; se não souber use a data_transacao
-- Se a data tiver apenas mês/ano, use o dia 01
-- Ignore linhas de saldo, totais, cabeçalhos e rodapés
-- Datas no formato brasileiro DD/MM/AAAA devem ser convertidas para YYYY-MM-DD
-
-Texto do extrato:
-${truncated}`
+          content: 'Você é um sistema de extração de dados financeiros. Analise o texto abaixo extraído de um extrato bancário ou fatura de cartão de crédito brasileiro e extraia TODAS as transações.\n\n' +
+              'Retorne APENAS um JSON array sem markdown, nenhum texto antes ou depois.\n' +
+              'Formato: [{"data_transacao":"YYYY-MM-DD","data_pagamento":"YYYY-MM-DD","descricao":"texto","valor":123.45,"tipo":"debito"}]\n\n' +
+              'Regras:\n' +
+              '- tipo: "debito" para gastos/saídas, "credito" para entradas/pagamentos recebidos\n' +
+              '- valor: sempre positivo (número, sem R$)\n' +
+              '- data_pagamento: para cartão de crédito use a data da fatura; se não souber use a data_transacao\n' +
+              '- Se a data tiver apenas mês/ano, use o dia 01\n' +
+              '- Ignore linhas de saldo, totais, cabeçalhos e rodapés\n' +
+              '- Datas no formato brasileiro DD/MM/AAAA devem ser convertidas para YYYY-MM-DD\n\n' +
+              'Texto do extrato:\n' + truncated
         }]
       })
     });
     const data = await res.json();
     if(data.error) throw new Error(data.error.message);
-    const txt = data.content[0].text.replace(/\`\`\`json|\`\`\`/g,'').trim();
+    const txt = data.content[0].text.replace(/```json|```/g,'').trim();
     const txs = JSON.parse(txt);
     toast(`${txs.length} transações extraídas do PDF!`, 'info');
     return txs;
@@ -1258,8 +1252,7 @@ ${truncated}`
 function parsePDFRuleBased(text) {
   // Fallback: regex-based extraction for common Brazilian bank statement formats
   const txs = [];
-  const lines = text.split('
-').map(l=>l.trim()).filter(l=>l);
+  const lines = text.split('\n').map(l=>l.trim()).filter(l=>l);
   // Regex patterns for Brazilian dates and currency
   const dateRE = /(\d{2})[\/\-](\d{2})[\/\-](\d{2,4})/;
   const valueRE = /R?\$?\s*([\d\.]+,\d{2})/;
