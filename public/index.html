@@ -1267,9 +1267,6 @@ async function convertPDFtoCSVwithAI(items, rawText, banks) {
       return sorted.map(i => i.text).join(' | ');
     });
 
-  // Truncate to fit context
-  const structuredText = lines.slice(0, 600).join('\n');
-
   const bankHint = banks.isItau ? 'Itau' : banks.isBradesco ? 'Bradesco' :
                    banks.isNubank ? 'Nubank' : banks.isSantander ? 'Santander' : 'banco brasileiro';
 
@@ -1278,26 +1275,25 @@ async function convertPDFtoCSVwithAI(items, rawText, banks) {
     return buildItauCSVFallback(lines);
   }
 
-  // If too many lines, process in chunks of 500 lines with overlap
-  if(lines.length > 550) {
-    toast('Extrato grande, processando em partes...', 'info');
-    const chunkSize = 500;
-    const overlap = 50;
-    let allCsvLines = ['data,descricao,valor,tipo'];
-    for(let start = 0; start < lines.length; start += chunkSize - overlap) {
-      const chunk = lines.slice(start, start + chunkSize);
-      const chunkText = chunk.join('\n');
-      toast('Processando parte ' + Math.ceil(start/chunkSize + 1) + '...', 'info');
-      const chunkCsv = await callAIForCSV(chunkText, bankHint);
-      if(chunkCsv) {
-        const chunkLines = chunkCsv.split('\n').filter(l => l.trim() && !l.startsWith('data,'));
-        allCsvLines = allCsvLines.concat(chunkLines);
-      }
-    }
-    return allCsvLines.join('\n');
+  // Process in chunks of 400 lines with 30-line overlap to handle large statements
+  const chunkSize = 400;
+  const overlap = 30;
+  let allCsvLines = ['data,descricao,valor,tipo'];
+  const chunks = [];
+  for(let start = 0; start < lines.length; start += chunkSize - overlap) {
+    chunks.push(lines.slice(start, start + chunkSize));
   }
-
-  return await callAIForCSV(structuredText, bankHint);
+  for(let ci = 0; ci < chunks.length; ci++) {
+    const chunkText = chunks[ci].join('\n');
+    if(chunks.length > 1) toast('Processando parte ' + (ci+1) + ' de ' + chunks.length + '...', 'info');
+    const chunkCsv = await callAIForCSV(chunkText, bankHint);
+    if(chunkCsv) {
+      const chunkLines = chunkCsv.split('\n').filter(l => l.trim() && !l.toLowerCase().startsWith('data,') && !l.toLowerCase().startsWith('data,descricao'));
+      allCsvLines = allCsvLines.concat(chunkLines);
+    }
+  }
+  if(allCsvLines.length <= 1) return buildItauCSVFallback(lines);
+  return allCsvLines.join('\n');
 }
 
 async function callAIForCSV(structuredText, bankHint) {
