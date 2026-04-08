@@ -1179,15 +1179,19 @@ async function parsePDF(file) {
       const page = await pdf.getPage(p);
       const tc = await page.getTextContent();
       const pageTexts = tc.items.map(i => i.str).join(' ').toLowerCase();
-      // Stop before internal accounting tables
-      if(p > 1 && (
-        pageTexts.includes('movimentacao - aplicacoes') ||
-        pageTexts.includes('movimentação - aplicações/resgates') ||
-        pageTexts.includes('compras a debito total') ||
-        pageTexts.includes('debitos automaticos efetuados') ||
+      // Stop before internal accounting/summary sections (not transaction pages)
+      // These sections appear AFTER all transactions in Itau statements
+      if(p > 2 && (
+        pageTexts.includes('movimentacao - aplicacoes/resgates') ||
+        pageTexts.includes('movimentação - aplicações/resgates antecipados') ||
         pageTexts.includes('pacote de servicos') ||
+        pageTexts.includes('pacote de servi') ||
         pageTexts.includes('notas explicativas') ||
-        pageTexts.includes('indicadores de mercado')
+        pageTexts.includes('indicadores de mercado') ||
+        pageTexts.includes('custo efetivo total') ||
+        pageTexts.includes('investimentos | indicadores') ||
+        pageTexts.includes('rentabilidade acumulada') ||
+        (pageTexts.includes('aplicacoes realizadas') && pageTexts.includes('valor principal') && pageTexts.includes('rendimento bruto'))
       )) {
         stopExtraction = true;
         break;
