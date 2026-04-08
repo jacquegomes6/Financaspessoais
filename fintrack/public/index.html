@@ -658,7 +658,7 @@ const STORE = {
   del: k => localStorage.removeItem('ft_'+k)
 };
 
-let supabase = null;
+let sbClient = null;
 let CATS = [];
 let ALL_TX = [];
 let pendingTx = [];
@@ -668,7 +668,7 @@ function initSupabase() {
   const url = STORE.get('sbUrl');
   const key = STORE.get('sbKey');
   if(!url || !key) return false;
-  supabase = window.supabase.createClient(url, key);
+  sbClient = window.supabase.createClient(url, key);
   return true;
 }
 
@@ -735,7 +735,7 @@ function nav(name) {
 // CATEGORIES
 // =============================================
 async function loadCategories() {
-  const {data,error} = await supabase.from('categorias').select('*').eq('ativo',true).order('nome');
+  const {data,error} = await sbClient.from('categorias').select('*').eq('ativo',true).order('nome');
   if(!error && data) {
     CATS = data;
     populateCatFilters();
@@ -808,8 +808,8 @@ async function saveCategory() {
   };
   if(!data.nome) { toast('Informe o nome da categoria','error'); return; }
   let err;
-  if(id) { ({error:err} = await supabase.from('categorias').update(data).eq('id',id)); }
-  else { ({error:err} = await supabase.from('categorias').insert(data)); }
+  if(id) { ({error:err} = await sbClient.from('categorias').update(data).eq('id',id)); }
+  else { ({error:err} = await sbClient.from('categorias').insert(data)); }
   if(err) { toast('Erro ao salvar: '+err.message,'error'); return; }
   closeModal('catModal');
   await loadCategories();
@@ -819,7 +819,7 @@ async function saveCategory() {
 
 async function deleteCategory(id) {
   if(!confirm('Deletar esta categoria? As transações ficarão sem categoria.')) return;
-  await supabase.from('categorias').update({ativo:false}).eq('id',id);
+  await sbClient.from('categorias').update({ativo:false}).eq('id',id);
   await loadCategories();
   renderCategories();
   toast('Categoria removida','info');
@@ -834,7 +834,7 @@ async function loadDashboard() {
   const ano = now.getFullYear();
 
   // Busca transações do mês
-  const {data:txMes} = await supabase.from('transacoes')
+  const {data:txMes} = await sbClient.from('transacoes')
     .select('*').eq('confirmado',true)
     .gte('data_transacao', `${ano}-${String(mes).padStart(2,'0')}-01`)
     .lt('data_transacao', mes===12?`${ano+1}-01-01`:`${ano}-${String(mes+1).padStart(2,'0')}-01`);
@@ -868,7 +868,7 @@ async function loadDashboard() {
 }
 
 async function buildBarChart() {
-  const {data} = await supabase.from('evolucao_mensal').select('*').order('ano').order('mes');
+  const {data} = await sbClient.from('evolucao_mensal').select('*').order('ano').order('mes');
   const chart = document.getElementById('barChart');
   if(!data||!data.length) { chart.innerHTML='<div style="color:var(--text3);font-size:13px">Sem dados</div>'; return; }
   const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
@@ -905,7 +905,7 @@ function buildDonut(catSpend) {
 // TRANSACTIONS
 // =============================================
 async function loadTransactions() {
-  const {data,error} = await supabase.from('transacoes').select('*').eq('confirmado',true).order('data_transacao',{ascending:false}).limit(200);
+  const {data,error} = await sbClient.from('transacoes').select('*').eq('confirmado',true).order('data_transacao',{ascending:false}).limit(200);
   ALL_TX = data||[];
   document.getElementById('txCount').textContent = `${ALL_TX.length} transações carregadas`;
   populateMonthFilter();
@@ -1064,7 +1064,7 @@ async function categorizarComIA(txs) {
   if(!apiKey||!CATS.length) return txs.map(t=>({...t,categoria_id:null,ia:false}));
 
   // Busca padrões aprendidos
-  const {data:padroes}=await supabase.from('padroes_categorizacao').select('*');
+  const {data:padroes}=await sbClient.from('padroes_categorizacao').select('*');
   const padraoMap={};
   (padroes||[]).forEach(p=>{ if(!padraoMap[p.texto_padrao]) padraoMap[p.texto_padrao]=p.categoria_id; });
 
@@ -1133,7 +1133,7 @@ async function confirmImport() {
   btn.textContent='Salvando...'; btn.disabled=true;
 
   // Cria registro de importação
-  const {data:imp}=await supabase.from('importacoes').insert({
+  const {data:imp}=await sbClient.from('importacoes').insert({
     nome_arquivo:`importacao_${new Date().toLocaleDateString('pt-BR')}`,
     tipo_arquivo:'manual',
     status:'concluido',
@@ -1165,12 +1165,12 @@ async function confirmImport() {
     if(catId) padroes.push({texto_padrao:tx.descricao.substring(0,80),categoria_id:catId});
   });
 
-  const {error}=await supabase.from('transacoes').insert(toSave);
+  const {error}=await sbClient.from('transacoes').insert(toSave);
   if(error) { toast('Erro ao salvar: '+error.message,'error'); btn.textContent='✓ Confirmar Importação'; btn.disabled=false; return; }
 
   // Aprende padrões
   for(const p of padroes) {
-    await supabase.from('padroes_categorizacao').upsert(p,{onConflict:'texto_padrao,categoria_id',ignoreDuplicates:false});
+    await sbClient.from('padroes_categorizacao').upsert(p,{onConflict:'texto_padrao,categoria_id',ignoreDuplicates:false});
   }
 
   cancelReview();
@@ -1188,7 +1188,7 @@ function cancelReview() {
 }
 
 async function loadImportHistory() {
-  const {data}=await supabase.from('importacoes').select('*').order('criado_em',{ascending:false}).limit(10);
+  const {data}=await sbClient.from('importacoes').select('*').order('criado_em',{ascending:false}).limit(10);
   const el=document.getElementById('importHistory');
   if(!data?.length) { el.innerHTML='<div class="empty"><div class="empty-icon">📂</div><div class="empty-title">Nenhuma importação ainda</div></div>'; return; }
   el.innerHTML='<div class="tx-list">'+data.map(imp=>`
@@ -1208,8 +1208,8 @@ async function loadImportHistory() {
 async function loadObjectives() {
   const now=new Date();
   const mes=now.getMonth()+1, ano=now.getFullYear();
-  const {data:objs}=await supabase.from('objetivos').select('*').eq('mes',mes).eq('ano',ano);
-  const {data:txMes}=await supabase.from('transacoes').select('*').eq('confirmado',true)
+  const {data:objs}=await sbClient.from('objetivos').select('*').eq('mes',mes).eq('ano',ano);
+  const {data:txMes}=await sbClient.from('transacoes').select('*').eq('confirmado',true)
     .gte('data_transacao',`${ano}-${String(mes).padStart(2,'0')}-01`)
     .lt('data_transacao',mes===12?`${ano+1}-01-01`:`${ano}-${String(mes+1).padStart(2,'0')}-01`);
 
@@ -1271,7 +1271,7 @@ async function saveObjective() {
   const ano=parseInt(document.getElementById('objAno').value);
   const valor=parseFloat(document.getElementById('objValor').value)||0;
   if(!catId||!valor) { toast('Preencha todos os campos','error'); return; }
-  const {error}=await supabase.from('objetivos').upsert({categoria_id:catId,mes,ano,valor_objetivo:valor},{onConflict:'categoria_id,mes,ano'});
+  const {error}=await sbClient.from('objetivos').upsert({categoria_id:catId,mes,ano,valor_objetivo:valor},{onConflict:'categoria_id,mes,ano'});
   if(error) { toast('Erro: '+error.message,'error'); return; }
   closeModal('objModal');
   loadObjectives();
@@ -1293,7 +1293,7 @@ function closeModal(id) { document.getElementById(id).classList.remove('active')
 function openWaModal() { toast('Configure Twilio SID, Token e Webhook no seu servidor backend','info'); }
 
 async function exportCSV() {
-  const {data}=await supabase.from('transacoes').select('*').eq('confirmado',true);
+  const {data}=await sbClient.from('transacoes').select('*').eq('confirmado',true);
   if(!data?.length) { toast('Sem dados para exportar','info'); return; }
   const header='Data,Pagamento,Descricao,Valor,Tipo,Categoria,Comentario\n';
   const rows=data.map(t=>{
