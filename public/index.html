@@ -7,7 +7,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://unpkg.com/pluggy-connect-sdk/dist/browser/index.js"></script>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 :root {
@@ -2458,14 +2457,25 @@ async function callPluggy(action, itemId) {
   return await res.json();
 }
 
+function loadPluggySDK() {
+  return new Promise((resolve, reject) => {
+    if(window.PluggyConnect) { resolve(window.PluggyConnect); return; }
+    const script = document.createElement('script');
+    script.src = 'https://cdn.pluggy.ai/pluggy-connect/v2.1.0/pluggy-connect.js';
+    script.onload = () => resolve(window.PluggyConnect);
+    script.onerror = () => reject(new Error('SDK nao carregou'));
+    document.head.appendChild(script);
+  });
+}
+
 async function openPluggyConnect(itemId) {
   toast('Obtendo token de conexao...', 'info');
   const data = await callPluggy('connect_token', itemId);
-  if(!data.token) { toast('Erro ao obter token: ' + (data.error||'Verifique a Edge Function'), 'error'); return; }
+  if(!data.token) { toast('Erro: ' + (data.error||'Falha ao obter token'), 'error'); return; }
 
   try {
-    const PluggyConnectSDK = window.PluggyConnect || window.pluggyConnectSdk?.default;
-    if(!PluggyConnectSDK) throw new Error('SDK nao carregado');
+    const PluggyConnectSDK = await loadPluggySDK();
+    toast('Abrindo widget...', 'info');
 
     const pluggyConnect = new PluggyConnectSDK({
       connectToken: data.token,
@@ -2474,7 +2484,7 @@ async function openPluggyConnect(itemId) {
         const connItemId = itemData?.item?.id || itemData?.itemId;
         const connName = itemData?.item?.connector?.name || 'Banco';
         const logoUrl = itemData?.item?.connector?.imageUrl || '';
-        toast('Banco conectado! Sincronizando transacoes...', 'info');
+        toast('Banco conectado! Sincronizando...', 'info');
         await sbClient.from('pluggy_items').upsert({
           item_id: connItemId,
           nome_banco: connName,
@@ -2489,17 +2499,20 @@ async function openPluggyConnect(itemId) {
         await loadDashboard();
       },
       onError: (error) => {
-        toast('Erro na conexao: ' + (error?.message || error), 'error');
+        toast('Erro: ' + (error?.message || JSON.stringify(error)), 'error');
       },
-      onClose: () => {
-        loadPluggyItems();
-      }
+      onClose: () => { loadPluggyItems(); }
     });
     pluggyConnect.init();
-  } catch(e) {
-    // Fallback: open meu.pluggy.ai for manual connection
-    toast('Abrindo Pluggy Connect...', 'info');
-    window.open('https://meu.pluggy.ai', '_blank', 'width=500,height=700');
+
+  } catch(sdkErr) {
+    console.error('SDK error:', sdkErr);
+    // Show manual token input as last resort
+    const tokenInput = prompt('Cole o Connect Token da Pluggy (obtido em dashboard.pluggy.ai):');
+    if(tokenInput) {
+      const url = 'https://connect.pluggy.ai/#connectToken=' + tokenInput.trim();
+      window.open(url, '_blank', 'width=500,height=700');
+    }
   }
 }
 
