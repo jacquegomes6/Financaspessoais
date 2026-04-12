@@ -344,10 +344,7 @@ input[type="file"] { display:none; }
     </div>
     <div class="chart-card">
       <div class="chart-header"><div class="chart-title">Por Categoria</div></div>
-      <div id="catPieWrap" style="display:flex;justify-content:center;margin-bottom:12px">
-        <svg width="130" height="130" viewBox="0 0 130 130" id="donutSvg"></svg>
-      </div>
-      <div id="donutLegend" style="display:flex;flex-direction:column;gap:6px"></div>
+      <div id="donutLegend" style="display:flex;flex-direction:column;gap:0"></div>
     </div>
   </div>
 
@@ -1039,6 +1036,22 @@ async function loadDashboard() {
   catDespesa.forEach(id => { despesas += Math.abs(catSaldoMap[id]||0); });
   const saldo = receitas - despesas;
 
+  // Fetch objectives for donut/category list
+  const {data: objsDonut} = await sbClient.from('objetivos').select('*').eq('mes',mes).eq('ano',ano);
+  CATS.forEach(c=>{
+    const o = (objsDonut||[]).find(o=>o.categoria_id===c.id);
+    c._meta = o ? parseFloat(o.valor_objetivo||0) : parseFloat(c.orcamento_mensal||0);
+  });
+  buildDonut(catSaldoMap);
+
+  // Saldo final acumulado até o mês selecionado
+  const mesEndAcum = mes===12?`${ano+1}-01-01`:`${ano}-${String(mes+1).padStart(2,'0')}-01`;
+  const {data:txAcum} = await sbClient.from('transacoes').select('valor,tipo')
+    .eq('confirmado',true).lt('data_transacao', mesEndAcum);
+  const saldoFinal = (txAcum||[]).reduce((s,t)=>
+    s + (t.tipo==='credito'?Math.abs(parseFloat(t.valor)):-Math.abs(parseFloat(t.valor))), 0);
+  const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
   // Metas do mês: soma objetivos por natureza
   const {data: objsMes} = await sbClient.from('objetivos').select('*')
     .eq('mes', mes).eq('ano', ano);
@@ -1079,7 +1092,7 @@ async function loadDashboard() {
       <div class="metric-value" style="color:${saldoOk?'var(--accent)':'var(--red)'}">${fmt(saldo)}</div>
       <div class="metric-sub" style="color:${saldo>=metaSaldo?'var(--green)':'var(--orange)'}">${metaSaldo!==0?'Meta: '+fmt(metaSaldo):receitas>0?Math.round(saldo/receitas*100)+'% da receita':'-'}</div>
     </div>
-    <div class="metric-card purple"><div class="metric-label">Transações</div><div class="metric-value" style="color:var(--purple)">${(txMes||[]).length}</div><div class="metric-sub">este mês</div></div>
+    <div class="metric-card purple"><div class="metric-label">Saldo Final</div><div class="metric-value" style="color:${saldoFinal>=0?'var(--green)':'var(--red)'}">${fmt(saldoFinal)}</div><div class="metric-sub">acumulado até ${months[mes-1]}</div></div>
   `;
 
   ALL_TX = txMes||[];
@@ -1223,36 +1236,50 @@ async function buildBarChart() {
 }
 
 function buildDonut(catSpend) {
-  const data = CATS.filter(c=>catSpend[c.id]).map(c=>({name:c.nome,val:catSpend[c.id],color:c.cor,icon:c.icone}));
-  if(!data.length) return;
-  const total = data.reduce((s,d)=>s+d.val,0);
-  const cx=65,cy=65,r=48,thick=16;
-  let angle=-Math.PI/2, paths='';
-  data.forEach(d=>{
-    const slice=(d.val/total)*2*Math.PI;
-    const x1=cx+r*Math.cos(angle),y1=cy+r*Math.sin(angle);
-    angle+=slice;
-    const x2=cx+r*Math.cos(angle),y2=cy+r*Math.sin(angle);
-    const large=slice>Math.PI?1:0;
-    const ir=r-thick;
-    const ix1=cx+ir*Math.cos(angle-slice),iy1=cy+ir*Math.sin(angle-slice);
-    const ix2=cx+ir*Math.cos(angle),iy2=cy+ir*Math.sin(angle);
-    paths+=`<path d="M${x1.toFixed(1)} ${y1.toFixed(1)} A${r} ${r} 0 ${large} 1 ${x2.toFixed(1)} ${y2.toFixed(1)} L${ix2.toFixed(1)} ${iy2.toFixed(1)} A${ir} ${ir} 0 ${large} 0 ${ix1.toFixed(1)} ${iy1.toFixed(1)} Z" fill="${d.color}" opacity="0.85"/>`;
-  });
-  document.getElementById('donutSvg').innerHTML=paths;
-  document.getElementById('donutLegend').innerHTML=data.map(d=>`<div style="display:flex;align-items:center;gap:8px"><div style="width:8px;height:8px;border-radius:2px;background:${d.color};flex-shrink:0"></div><span style="font-size:12px;color:var(--text2);flex:1">${d.icon} ${d.name}</span><span style="font-size:12px;font-weight:500">${fmt(d.val)}</span></div>`).join('');
+  const legend = document.getElementById('donutLegend');
+  if(!legend) return;
+
+  // Build ranked list of categories with meta comparison
+  const entries = Object.entries(catSpend)
+    .map(([id,val]) => {
+      const cat = CATS.find(c=>c.id===id);
+      if(!cat) return null;
+      const absVal = Math.abs(val);
+      const meta = cat._meta || cat.orcamento_mensal || 0;
+      const diff = val - meta; // positive = above budget for receita, below for despesa
+      const pct = meta > 0 ? Math.round(val/meta*100) : null;
+      return {cat, val, absVal, meta, diff, pct};
+    })
+    .filter(Boolean)
+    .sort((a,b) => b.absVal - a.absVal);
+
+  if(!entries.length) {
+    legend.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:12px">Sem dados categorizados</div>';
+    return;
+  }
+
+  legend.innerHTML = entries.map(({cat,val,absVal,meta,diff,pct}) => {
+    const isReceita = cat.natureza==='receita';
+    const color = cat.cor || '#007AFF';
+    const diffColor = isReceita
+      ? (diff>=0?'var(--green)':'var(--red)')
+      : (diff<=0?'var(--green)':'var(--red)');
+    const diffSign = diff>=0?'+':'';
+    const valStr = isReceita ? '+'+fmt(val) : fmt(absVal);
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${cat.icone} ${cat.nome}</div>
+        ${meta>0?`<div style="font-size:11px;color:var(--text3)">Meta: ${fmt(meta)}</div>`:''}
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-size:13px;font-weight:600;color:${isReceita?'var(--green)':'var(--text)'}">${valStr}</div>
+        ${meta>0?`<div style="font-size:11px;color:${diffColor}">${diffSign}${fmt(Math.abs(diff))} (${pct}%)</div>`:''}
+      </div>
+    </div>`;
+  }).join('');
 }
 
-// =============================================
-// TRANSACTIONS
-// =============================================
-async function loadTransactions() {
-  const {data,error} = await sbClient.from('transacoes').select('*').eq('confirmado',true).order('data_transacao',{ascending:false}).limit(200);
-  ALL_TX = data||[];
-  document.getElementById('txCount').textContent = `${ALL_TX.length} transações carregadas`;
-  populateMonthFilter();
-  renderTxList(ALL_TX);
-}
 
 function populateMonthFilter() {
   const months=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
