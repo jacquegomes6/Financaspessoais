@@ -292,9 +292,7 @@ input[type="file"] { display:none; }
     </div>
 
     <div class="nav-section">Integração</div>
-    <div class="nav-item" onclick="nav('whatsapp')">
-      <div class="nav-icon" style="background:rgba(37,211,102,0.12)">💬</div>WhatsApp
-    </div>
+
     <div class="nav-item" onclick="nav('settings')">
       <div class="nav-icon" style="background:rgba(142,142,147,0.15)">⚙️</div>Configurações
     </div>
@@ -486,66 +484,6 @@ input[type="file"] { display:none; }
   </div>
   <div id="catList" style="display:flex;flex-direction:column;gap:12px">
     <div class="loading"><div class="spinner"></div></div>
-  </div>
-</div>
-
-<!-- WHATSAPP -->
-<div class="screen" id="screen-whatsapp">
-  <div class="page-header">
-    <div>
-      <div class="page-title">Integração WhatsApp</div>
-      <div class="page-sub">Consulte seu orçamento diretamente pelo celular</div>
-    </div>
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
-    <div class="chart-card">
-      <div class="chart-title" style="margin-bottom:16px">Preview</div>
-      <div class="wa-preview">
-        <div class="wa-header">
-          <div class="wa-avatar">💰</div>
-          <div><div style="color:white;font-weight:600;font-size:15px">FinTrack Bot</div><div style="color:rgba(255,255,255,0.7);font-size:12px">online</div></div>
-        </div>
-        <div class="wa-bubble user">Quanto tenho disponível em restaurante?<div class="wa-time">14:32</div></div>
-        <div class="wa-bubble bot">🍽️ <strong>Restaurante – Abril</strong><br><br>Orçamento: R$ 1.200<br>Gasto: R$ 847 (70%)<br>Disponível: <strong>R$ 353</strong><br><br>Faltam 9 dias no mês.<div class="wa-time">14:32</div></div>
-        <div class="wa-bubble user">Saldo total do mês?<div class="wa-time">14:35</div></div>
-        <div class="wa-bubble bot">💰 <strong>Resumo Abril</strong><br><br>Receitas: R$ 18.400<br>Despesas: R$ 11.230<br>Saldo: <strong>R$ 7.170 ✅</strong><div class="wa-time">14:35</div></div>
-      </div>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:16px">
-      <div class="chart-card">
-        <div class="chart-title" style="margin-bottom:16px">Configuração Twilio</div>
-        <div class="settings-section">
-          <div class="settings-item">
-            <div class="settings-icon" style="background:rgba(37,211,102,0.1)">📱</div>
-            <div style="flex:1"><div class="settings-label">Número WhatsApp</div><div class="settings-sub">Seu número cadastrado</div></div>
-            <button class="btn btn-ghost btn-sm" onclick="openWaModal()">Configurar</button>
-          </div>
-          <div class="settings-item">
-            <div class="settings-icon" style="background:rgba(175,82,222,0.1)">🔑</div>
-            <div style="flex:1"><div class="settings-label">Twilio SID & Token</div><div class="settings-sub">Credenciais da API</div></div>
-            <button class="btn btn-ghost btn-sm" onclick="openWaModal()">Editar</button>
-          </div>
-          <div class="settings-item">
-            <div class="settings-icon" style="background:rgba(255,149,0,0.1)">🔔</div>
-            <div style="flex:1"><div class="settings-label">Alertas automáticos</div><div class="settings-sub">Avisa ao atingir 80% do objetivo</div></div>
-            <button class="toggle on" onclick="this.classList.toggle('on')"></button>
-          </div>
-        </div>
-        <div class="info-box" style="margin-top:16px">
-          <strong>Webhook URL para Twilio:</strong><br>
-          <code style="font-size:11px;color:var(--accent)">https://seu-projeto.vercel.app/api/whatsapp</code><br><br>
-          Configure este endereço no Twilio Sandbox como "When a message comes in".
-        </div>
-      </div>
-      <div class="chart-card">
-        <div class="chart-title" style="margin-bottom:12px">Comandos disponíveis</div>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <div style="background:var(--bg);border-radius:8px;padding:10px 12px"><div style="font-size:12px;font-weight:600;color:var(--accent);margin-bottom:2px">"saldo [categoria]"</div><div style="font-size:12px;color:var(--text2)">Disponível na categoria</div></div>
-          <div style="background:var(--bg);border-radius:8px;padding:10px 12px"><div style="font-size:12px;font-weight:600;color:var(--accent);margin-bottom:2px">"resumo" ou "saldo total"</div><div style="font-size:12px;color:var(--text2)">Resumo do mês atual</div></div>
-          <div style="background:var(--bg);border-radius:8px;padding:10px 12px"><div style="font-size:12px;font-weight:600;color:var(--accent);margin-bottom:2px">"últimas transações"</div><div style="font-size:12px;color:var(--text2)">5 mais recentes</div></div>
-        </div>
-      </div>
-    </div>
   </div>
 </div>
 
