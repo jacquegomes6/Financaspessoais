@@ -1246,7 +1246,7 @@ function filterTx() {
   const typ = document.getElementById('txTypeFilter').value;
   const filtered = ALL_TX.filter(t => {
     const matchQ = !q || t.descricao.toLowerCase().includes(q);
-    const matchC = !cat || (cat === '__sem__' ? !t.categoria_id : t.categoria_id === cat);
+    const matchC = !cat || (cat === '__sem__' ? (!t.categoria_id || t.categoria_id === '' || t.categoria_id === null) : t.categoria_id === cat);
     const matchM = !mon || (()=>{ const d=new Date(t.data_transacao+'T00:00:00'); return `${d.getFullYear()}-${d.getMonth()}`===mon; })();
     const matchT = !typ || t.tipo === typ;
     return matchQ && matchC && matchM && matchT;
