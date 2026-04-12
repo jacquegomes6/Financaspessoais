@@ -846,7 +846,8 @@ async function loadCategoryBudgets() {
   const spendMap={};
   (txMes||[]).forEach(t=>{
     if(!t.categoria_id) return;
-    spendMap[t.categoria_id]=(spendMap[t.categoria_id]||0)+Math.abs(parseFloat(t.valor));
+    const val = t.tipo==='credito' ? Math.abs(parseFloat(t.valor)) : -Math.abs(parseFloat(t.valor));
+    spendMap[t.categoria_id]=(spendMap[t.categoria_id]||0)+val;
   });
   CATS.forEach(c=>{
     c._budget = budgetMap[c.id]||0;
@@ -1029,22 +1030,17 @@ async function loadDashboard() {
     <div class="metric-card blue"><div class="metric-label">Saldo Líquido</div><div class="metric-value" style="color:var(--accent)">${fmt(saldo)}</div><div class="metric-sub">${receitas>0?Math.round(saldo/receitas*100):0}% da receita</div></div>
     <div class="metric-card purple"><div class="metric-label">Transações</div><div class="metric-value" style="color:var(--purple)">${(txMes||[]).length}</div><div class="metric-sub">este mês</div></div>`;
 
-  // Gasto por categoria (para donut) - considera débitos e créditos separadamente
-  const catSpend = {};   // débitos (saídas)
-  const catIncome = {};  // créditos (entradas)
+  // Gasto por categoria - saldo líquido (créditos - débitos)
+  const catSpend = {};
   (txMes||[]).forEach(t=>{
     if(!t.categoria_id) return;
-    if(t.tipo==='debito') catSpend[t.categoria_id]=(catSpend[t.categoria_id]||0)+Math.abs(parseFloat(t.valor));
-    else catIncome[t.categoria_id]=(catIncome[t.categoria_id]||0)+parseFloat(t.valor);
+    const val = t.tipo==='credito' ? Math.abs(parseFloat(t.valor)) : -Math.abs(parseFloat(t.valor));
+    catSpend[t.categoria_id]=(catSpend[t.categoria_id]||0)+val;
   });
-  CATS.forEach(c=>{
-    c._spent=catSpend[c.id]||0;
-    c._income=catIncome[c.id]||0;
-  });
-  // Donut mostra apenas categorias de despesa
+  CATS.forEach(c=>c._spent=catSpend[c.id]||0);
   const donutData = {};
   CATS.filter(c=>!c.natureza||c.natureza==='despesa').forEach(c=>{
-    if(catSpend[c.id]) donutData[c.id]=catSpend[c.id];
+    if(catSpend[c.id]) donutData[c.id]=Math.abs(catSpend[c.id]);
   });
   buildDonut(donutData);
 
@@ -2152,7 +2148,7 @@ async function loadObjectives() {
   const catSpend={};
   (txMes||[]).forEach(t=>{
     if(!t.categoria_id) return;
-    const val = Math.abs(parseFloat(t.valor));
+    const val = t.tipo==='credito' ? Math.abs(parseFloat(t.valor)) : -Math.abs(parseFloat(t.valor));
     catSpend[t.categoria_id]=(catSpend[t.categoria_id]||0)+val;
   });
 
