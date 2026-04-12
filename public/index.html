@@ -324,7 +324,7 @@ input[type="file"] { display:none; }
   <div class="cards-grid" id="dashCards">
     <div class="loading"><div class="spinner"></div> Carregando dados...</div>
   </div>
-  <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
+  <div>
     <div class="chart-card">
       <div class="chart-header">
         <div class="chart-title">Evolução Mensal</div>
@@ -342,12 +342,14 @@ input[type="file"] { display:none; }
       </div>
       <div class="bar-chart" id="barChart"></div>
     </div>
-    <div class="chart-card">
+  </div>
+
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <div class="chart-card" style="overflow-y:auto;max-height:600px">
       <div class="chart-header"><div class="chart-title">Por Categoria</div></div>
       <div id="donutLegend" style="display:flex;flex-direction:column;gap:0"></div>
     </div>
-  </div>
-
 
   <div class="chart-card">
     <div class="chart-header">
@@ -358,6 +360,8 @@ input[type="file"] { display:none; }
       <button class="btn btn-ghost btn-sm" onclick="openObjModal()">+ Definir Objetivo</button>
     </div>
     <div class="obj-grid" id="objGrid" style="margin-top:4px"></div>
+  </div>
+
     <div class="info-box" style="margin-top:16px">
       <strong>💬 Dica:</strong> Pergunte pelo WhatsApp "Quanto tenho disponível em restaurante?" para consultar seu saldo a qualquer hora.
     </div>
@@ -1246,8 +1250,10 @@ function buildDonut(catSpend) {
       if(!cat) return null;
       const absVal = Math.abs(val);
       const meta = cat._meta || cat.orcamento_mensal || 0;
-      const diff = val - meta; // positive = above budget for receita, below for despesa
-      const pct = meta > 0 ? Math.round(val/meta*100) : null;
+      // diff: para receita = realizado - meta; para despesa = meta - realizado (positivo = disponível)
+      const isReceita = cat.natureza==='receita';
+      const diff = isReceita ? val - meta : meta - absVal;
+      const pct = meta > 0 ? Math.round(absVal/meta*100) : null;
       return {cat, val, absVal, meta, diff, pct};
     })
     .filter(Boolean)
@@ -1261,11 +1267,16 @@ function buildDonut(catSpend) {
   legend.innerHTML = entries.map(({cat,val,absVal,meta,diff,pct}) => {
     const isReceita = cat.natureza==='receita';
     const color = cat.cor || '#007AFF';
-    const diffColor = isReceita
-      ? (diff>=0?'var(--green)':'var(--red)')
-      : (diff<=0?'var(--green)':'var(--red)');
-    const diffSign = diff>=0?'+':'';
+    // Valor exibido: receita em verde (+), despesa em vermelho (valor absoluto)
+    const valColor = isReceita ? 'var(--green)' : 'var(--red)';
     const valStr = isReceita ? '+'+fmt(val) : fmt(absVal);
+    // Diferença: receita → acima da meta é BOM (verde), abaixo é ruim (vermelho)
+    //            despesa → abaixo da meta é BOM (verde), acima é ruim (vermelho)
+    const diffOk = isReceita ? diff>=0 : diff<=0;
+    const diffColor = diffOk ? 'var(--green)' : 'var(--red)';
+    const diffStr = isReceita
+      ? (diff>=0?'+':'')+fmt(diff)+' ('+pct+'%)'
+      : (absVal<=meta?'-':'+')+(fmt(Math.abs(diff)))+' ('+Math.abs(pct-100)+'%)';
     return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
       <div style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></div>
       <div style="flex:1;min-width:0">
@@ -1273,8 +1284,8 @@ function buildDonut(catSpend) {
         ${meta>0?`<div style="font-size:11px;color:var(--text3)">Meta: ${fmt(meta)}</div>`:''}
       </div>
       <div style="text-align:right;flex-shrink:0">
-        <div style="font-size:13px;font-weight:600;color:${isReceita?'var(--green)':'var(--text)'}">${valStr}</div>
-        ${meta>0?`<div style="font-size:11px;color:${diffColor}">${diffSign}${fmt(Math.abs(diff))} (${pct}%)</div>`:''}
+        <div style="font-size:13px;font-weight:600;color:${valColor}">${valStr}</div>
+        ${meta>0?`<div style="font-size:11px;color:${diffColor}">${diffStr}</div>`:''}
       </div>
     </div>`;
   }).join('');
