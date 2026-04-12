@@ -2170,11 +2170,16 @@ async function loadObjectives() {
     const orca=objMap[cat.id]||cat.orcamento_mensal||0;
     const isReceita = cat.natureza==='receita';
     const movimentado=catSpend[cat.id]||0;
-    const pct=orca>0?Math.min(100,Math.round(movimentado/orca*100)):0;
-    const avail = isReceita ? movimentado - orca : orca - movimentado;
+    // Para despesa: movimentado é negativo (débitos - créditos), usar valor absoluto
+    const movAbs = Math.abs(movimentado);
+    const orcaAbs = Math.abs(orca);
+    const pct = orcaAbs>0 ? Math.min(200, Math.round(movAbs/orcaAbs*100)) : 0;
+    const pctBar = Math.min(100, pct);
+    // Despesa: ultrapassar meta é RUIM. Receita: ultrapassar meta é BOM.
+    const avail = isReceita ? movimentado - orca : orca - movAbs;
     const barColor = isReceita
       ? (pct>=100?'var(--green)':pct>=70?'var(--accent)':'var(--orange)')
-      : (pct>85?'var(--red)':pct>65?'var(--orange)':'var(--green)');
+      : (pct>100?'var(--red)':pct>85?'var(--red)':pct>65?'var(--orange)':'var(--green)');
     const chipCls = isReceita
       ? (pct>=100?'green':pct>=70?'blue':'orange')
       : (pct>85?'red':pct>65?'orange':'green');
@@ -2193,8 +2198,10 @@ async function loadObjectives() {
         </div>
         <span class="chip ${chipCls}">${pct}%</span>
       </div>
-      <div style="font-size:18px;font-weight:700;margin-bottom:8px;color:${isReceita?'var(--green)':'var(--text)'}">${isReceita?'+':''}${fmt(movimentado)}</div>
-      <div class="progress-bar" style="height:7px"><div class="progress-fill" style="width:${pct}%;background:${barColor}"></div></div>
+      <div style="font-size:18px;font-weight:700;margin-bottom:8px;color:${isReceita?'var(--green)':(avail<0?'var(--red)':'var(--text)')}">
+        ${isReceita?'+':''}${fmt(isReceita?movimentado:movAbs)}
+      </div>
+      <div class="progress-bar" style="height:7px"><div class="progress-fill" style="width:${pctBar}%;background:${barColor}"></div></div>
       <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-top:6px">
         <span>Meta: ${fmt(orca)}</span>
         <span>${availLabel}: <strong style="color:${avail>=0?'var(--green)':'var(--red)'}">${fmt(Math.abs(avail))}</strong></span>
