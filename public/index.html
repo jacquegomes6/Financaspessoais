@@ -1020,29 +1020,67 @@ async function loadDashboard() {
     .gte('data_transacao', `${ano}-${String(mes).padStart(2,'0')}-01`)
     .lt('data_transacao', mes===12?`${ano+1}-01-01`:`${ano}-${String(mes+1).padStart(2,'0')}-01`);
 
-  const receitas = (txMes||[]).filter(t=>t.tipo==='credito').reduce((s,t)=>s+parseFloat(t.valor),0);
-  const despesas = (txMes||[]).filter(t=>t.tipo==='debito').reduce((s,t)=>s+Math.abs(parseFloat(t.valor)),0);
-  const saldo = receitas - despesas;
+  // Categorias de receita e despesa
+  const catReceita = new Set(CATS.filter(c=>c.natureza==='receita').map(c=>c.id));
+  const catDespesa = new Set(CATS.filter(c=>!c.natureza||c.natureza==='despesa').map(c=>c.id));
 
-  document.getElementById('dashCards').innerHTML = `
-    <div class="metric-card green"><div class="metric-label">Receitas</div><div class="metric-value" style="color:var(--green)">${fmt(receitas)}</div><div class="metric-sub">este mês</div></div>
-    <div class="metric-card red"><div class="metric-label">Despesas</div><div class="metric-value" style="color:var(--red)">${fmt(despesas)}</div><div class="metric-sub">este mês</div></div>
-    <div class="metric-card blue"><div class="metric-label">Saldo Líquido</div><div class="metric-value" style="color:var(--accent)">${fmt(saldo)}</div><div class="metric-sub">${receitas>0?Math.round(saldo/receitas*100):0}% da receita</div></div>
-    <div class="metric-card purple"><div class="metric-label">Transações</div><div class="metric-value" style="color:var(--purple)">${(txMes||[]).length}</div><div class="metric-sub">este mês</div></div>`;
-
-  // Gasto por categoria - saldo líquido (créditos - débitos)
-  const catSpend = {};
-  (txMes||[]).forEach(t=>{
+  // Agrupa saldo líquido por categoria (créditos - débitos)
+  const catSaldoMap = {};
+  (txMes||[]).forEach(t => {
     if(!t.categoria_id) return;
     const val = t.tipo==='credito' ? Math.abs(parseFloat(t.valor)) : -Math.abs(parseFloat(t.valor));
-    catSpend[t.categoria_id]=(catSpend[t.categoria_id]||0)+val;
+    catSaldoMap[t.categoria_id] = (catSaldoMap[t.categoria_id]||0) + val;
   });
-  CATS.forEach(c=>c._spent=catSpend[c.id]||0);
-  const donutData = {};
-  CATS.filter(c=>!c.natureza||c.natureza==='despesa').forEach(c=>{
-    if(catSpend[c.id]) donutData[c.id]=Math.abs(catSpend[c.id]);
+
+  // Receitas: soma saldo líquido das categorias de receita
+  // Despesas: soma valor absoluto do saldo líquido das categorias de despesa
+  let receitas = 0, despesas = 0;
+  catReceita.forEach(id => { receitas += catSaldoMap[id]||0; });
+  catDespesa.forEach(id => { despesas += Math.abs(catSaldoMap[id]||0); });
+  const saldo = receitas - despesas;
+
+  // Metas do mês: soma objetivos por natureza
+  const {data: objsMes} = await sbClient.from('objetivos').select('*')
+    .eq('mes', mes).eq('ano', ano);
+  let metaReceita = 0, metaDespesa = 0;
+  (objsMes||[]).forEach(o => {
+    const cat = CATS.find(c=>c.id===o.categoria_id);
+    if(!cat) return;
+    if(cat.natureza==='receita') metaReceita += parseFloat(o.valor_objetivo||0);
+    else metaDespesa += parseFloat(o.valor_objetivo||0);
   });
-  buildDonut(donutData);
+  // Fallback: orcamento_mensal das categorias
+  if(!metaReceita && !metaDespesa) {
+    CATS.forEach(c => {
+      if(!c.orcamento_mensal) return;
+      if(c.natureza==='receita') metaReceita += parseFloat(c.orcamento_mensal||0);
+      else metaDespesa += parseFloat(c.orcamento_mensal||0);
+    });
+  }
+  const metaSaldo = metaReceita - metaDespesa;
+
+  const receitaOk = receitas >= metaReceita;
+  const despesaOk = despesas <= metaDespesa || metaDespesa === 0;
+  const saldoOk = saldo >= 0;
+
+  document.getElementById('dashCards').innerHTML = `
+    <div class="metric-card green">
+      <div class="metric-label">Receitas</div>
+      <div class="metric-value" style="color:var(--green)">${fmt(receitas)}</div>
+      <div class="metric-sub" style="color:${receitaOk?'var(--green)':'var(--orange)'}">${metaReceita>0?'Meta: '+fmt(metaReceita):'este mês'}</div>
+    </div>
+    <div class="metric-card red">
+      <div class="metric-label">Despesas</div>
+      <div class="metric-value" style="color:var(--red)">${fmt(despesas)}</div>
+      <div class="metric-sub" style="color:${despesaOk?'var(--text3)':'var(--red)'}">${metaDespesa>0?'Meta: '+fmt(metaDespesa):'este mês'}</div>
+    </div>
+    <div class="metric-card blue">
+      <div class="metric-label">Saldo Líquido</div>
+      <div class="metric-value" style="color:${saldoOk?'var(--accent)':'var(--red)'}">${fmt(saldo)}</div>
+      <div class="metric-sub" style="color:${saldo>=metaSaldo?'var(--green)':'var(--orange)'}">${metaSaldo!==0?'Meta: '+fmt(metaSaldo):receitas>0?Math.round(saldo/receitas*100)+'% da receita':'-'}</div>
+    </div>
+    <div class="metric-card purple"><div class="metric-label">Transações</div><div class="metric-value" style="color:var(--purple)">${(txMes||[]).length}</div><div class="metric-sub">este mês</div></div>
+  `;
 
   ALL_TX = txMes||[];
 
