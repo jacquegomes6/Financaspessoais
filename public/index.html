@@ -569,12 +569,7 @@ input[type="file"] { display:none; }
             <div style="flex:1"><div class="settings-label">Claude AI</div><div class="settings-sub">Categorização inteligente</div></div>
             <span class="chip" id="aiChip">Verificando</span>
           </div>
-          <div class="settings-item">
-            <div class="settings-icon" style="background:rgba(52,199,89,0.1)">🏦</div>
-            <div style="flex:1"><div class="settings-label">Open Finance (Pluggy)</div><div class="settings-sub" id="pluggyStatus">Carregando...</div></div>
-            <button class="btn btn-primary btn-sm" onclick="openPluggyConnect()">+ Conectar Banco</button>
-          </div>
-          <div id="pluggyItemsList" style="padding:0 20px 12px"></div>
+
         </div>
       </div>
       <div>
@@ -888,7 +883,7 @@ function nav(name) {
   if(name==='transactions') loadTransactions();
   if(name==='categories') { loadCategoryBudgets().then(()=>renderCategories()); }
   if(name==='upload') loadImportHistory();
-  if(name==='settings') loadPluggyItems();
+
 }
 
 // =============================================
@@ -2435,132 +2430,6 @@ async function saveManualTx() {
   toast('Transação incluída com sucesso!', 'success');
   await loadDashboard();
   await loadImportHistory();
-}
-
-// =============================================
-// PLUGGY INTEGRATION
-// =============================================
-const PLUGGY_FUNCTION_URL = 'https://nwibokwyxvobksvpdosn.supabase.co/functions/v1/pluggy';
-
-async function callPluggy(action, itemId) {
-  const sbKey = STORE.get('sbKey');
-  const body = { action };
-  if(itemId) body.itemId = itemId;
-  const res = await fetch(PLUGGY_FUNCTION_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + sbKey,
-    },
-    body: JSON.stringify(body)
-  });
-  return await res.json();
-}
-
-function loadPluggySDK() {
-  return new Promise((resolve, reject) => {
-    if(window.PluggyConnect) { resolve(window.PluggyConnect); return; }
-    const script = document.createElement('script');
-    script.src = 'https://cdn.pluggy.ai/pluggy-connect/v2.1.0/pluggy-connect.js';
-    script.onload = () => resolve(window.PluggyConnect);
-    script.onerror = () => reject(new Error('SDK nao carregou'));
-    document.head.appendChild(script);
-  });
-}
-
-async function openPluggyConnect(itemId) {
-  toast('Obtendo token de conexao...', 'info');
-  const data = await callPluggy('connect_token', itemId);
-  if(!data.token) { toast('Erro: ' + (data.error||'Falha ao obter token'), 'error'); return; }
-
-  try {
-    const PluggyConnectSDK = await loadPluggySDK();
-    toast('Abrindo widget...', 'info');
-
-    const pluggyConnect = new PluggyConnectSDK({
-      connectToken: data.token,
-      includeSandbox: false,
-      onSuccess: async (itemData) => {
-        const connItemId = itemData?.item?.id || itemData?.itemId;
-        const connName = itemData?.item?.connector?.name || 'Banco';
-        const logoUrl = itemData?.item?.connector?.imageUrl || '';
-        toast('Banco conectado! Sincronizando...', 'info');
-        await sbClient.from('pluggy_items').upsert({
-          item_id: connItemId,
-          nome_banco: connName,
-          logo_url: logoUrl,
-          status: 'syncing',
-          last_sync: null
-        }, {onConflict: 'item_id'});
-        const syncResult = await callPluggy('sync', connItemId);
-        if(syncResult.error) { toast('Erro ao sincronizar: ' + syncResult.error, 'error'); return; }
-        toast(syncResult.synced + ' transacoes sincronizadas!', 'success');
-        await loadPluggyItems();
-        await loadDashboard();
-      },
-      onError: (error) => {
-        toast('Erro: ' + (error?.message || JSON.stringify(error)), 'error');
-      },
-      onClose: () => { loadPluggyItems(); }
-    });
-    pluggyConnect.init();
-
-  } catch(sdkErr) {
-    console.error('SDK error:', sdkErr);
-    // Show manual token input as last resort
-    const tokenInput = prompt('Cole o Connect Token da Pluggy (obtido em dashboard.pluggy.ai):');
-    if(tokenInput) {
-      const url = 'https://connect.pluggy.ai/#connectToken=' + tokenInput.trim();
-      window.open(url, '_blank', 'width=500,height=700');
-    }
-  }
-}
-
-async function loadPluggyItems() {
-  const data = await callPluggy('list_items');
-  const items = data.items || [];
-  const el = document.getElementById('pluggyItemsList');
-  const statusEl = document.getElementById('pluggyStatus');
-  if(!el) return;
-
-  if(!items.length) {
-    if(statusEl) statusEl.textContent = 'Nenhum banco conectado';
-    el.innerHTML = '';
-    return;
-  }
-
-  if(statusEl) statusEl.textContent = items.length + ' banco(s) conectado(s)';
-
-  el.innerHTML = items.map(item => {
-    const lastSync = item.last_sync
-      ? new Date(item.last_sync).toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'})
-      : 'Nunca';
-    return `<div class="settings-item" style="padding:10px 0">
-      ${item.logo_url ? `<img src="${item.logo_url}" style="width:28px;height:28px;border-radius:6px;object-fit:contain">` : '<div class="settings-icon" style="background:rgba(0,122,255,0.1)">🏦</div>'}
-      <div style="flex:1">
-        <div class="settings-label">${item.nome_banco}</div>
-        <div class="settings-sub">Ultima sync: ${lastSync}</div>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="syncPluggyItem('${item.item_id}')">🔄 Sync</button>
-      <button class="btn btn-danger btn-sm" style="margin-left:4px" onclick="deletePluggyItem('${item.item_id}')">✕</button>
-    </div>`;
-  }).join('');
-}
-
-async function syncPluggyItem(itemId) {
-  toast('Sincronizando...', 'info');
-  const result = await callPluggy('sync', itemId);
-  if(result.error) { toast('Erro: ' + result.error, 'error'); return; }
-  toast(result.synced + ' novas transacoes sincronizadas!', 'success');
-  await loadPluggyItems();
-  if(result.synced > 0) await loadDashboard();
-}
-
-async function deletePluggyItem(itemId) {
-  if(!confirm('Desconectar este banco? As transacoes ja importadas serao mantidas.')) return;
-  await callPluggy('delete_item', itemId);
-  await loadPluggyItems();
-  toast('Banco desconectado!', 'info');
 }
 
 // =============================================
