@@ -858,7 +858,7 @@ function changeMonth() {
 
 function updateGreeting() {
   const h = new Date().getHours();
-  document.getElementById('dashGreeting').textContent = `${h<12?'Bom dia':h<18?'Boa tarde':'Boa noite'}! &#128075;`;
+  document.getElementById('dashGreeting').textContent = `${h<12?'Bom dia':h<18?'Boa tarde':'Boa noite'}! 👋`;
   const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   document.getElementById('dashPeriod').textContent = `${months[selectedMonth-1]} ${selectedYear} · Resumo financeiro`;
 
