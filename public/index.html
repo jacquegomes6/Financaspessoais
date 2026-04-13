@@ -819,7 +819,7 @@ function nav(name) {
   document.querySelectorAll('.nav-item').forEach(item => {
     if(item.getAttribute('onclick')?.includes("'"+name+"'")) item.classList.add('active');
   });
-  if(name==='transactions') loadTransactions();
+  if(name==='transactions') loadAllTransactions();
   if(name==='categories') { loadCategoryBudgets().then(()=>renderCategories()); }
   if(name==='upload') loadImportHistory();
 
@@ -2410,6 +2410,39 @@ async function deleteSelected() {
   document.getElementById('txCount').textContent = `${ALL_TX.length} transações carregadas`;
   toast(`${n} transação${n>1?'ões':''} excluída${n>1?'s':''}!`, 'info');
   await loadDashboard();
+}
+
+// =============================================
+// LOAD ALL TRANSACTIONS (for transactions tab)
+// =============================================
+async function loadAllTransactions() {
+  document.getElementById('txCount').textContent = 'Carregando...';
+  const {data, error} = await sbClient.from('transacoes')
+    .select('*')
+    .eq('confirmado', true)
+    .order('data_pagamento', {ascending: false});
+  if(error) { document.getElementById('txCount').textContent = 'Erro ao carregar'; return; }
+  ALL_TX = data || [];
+  document.getElementById('txCount').textContent = `${ALL_TX.length} transações carregadas`;
+  // Populate month filter
+  const seen = new Set();
+  ALL_TX.forEach(t => {
+    const d = new Date((t.data_pagamento||t.data_transacao)+'T00:00:00');
+    seen.add(`${d.getFullYear()}-${d.getMonth()}`);
+  });
+  const sel = document.getElementById('txMonthFilter');
+  const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  sel.innerHTML = '<option value="">Todos os meses</option>' +
+    [...seen].sort().reverse().map(k => {
+      const [y,m] = k.split('-');
+      return `<option value="${k}">${months[parseInt(m)]} ${y}</option>`;
+    }).join('');
+  // Populate category filter
+  const catSel = document.getElementById('txCatFilter');
+  catSel.innerHTML = '<option value="">Todas categorias</option>' +
+    '<option value="__sem__">— Sem categoria</option>' +
+    CATS.map(c=>`<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
+  filterTx();
 }
 
 // =============================================
