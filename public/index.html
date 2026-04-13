@@ -1180,7 +1180,7 @@ async function buildBarChart() {
 
   // With category filter: query transactions directly
   const {data:txs} = await sbClient.from('transacoes')
-    .select('data_transacao,valor,tipo')
+    .select('data_pagamento,valor,tipo')
     .eq('confirmado', true)
     .eq('categoria_id', catFilter);
 
@@ -1197,7 +1197,7 @@ async function buildBarChart() {
 
   txs.forEach(t => {
     if(!t.data_transacao) return;
-    const key = t.data_transacao.substring(0,7);
+    const key = (t.data_pagamento||t.data_transacao||'').substring(0,7);
     if(!monthData[key]) return;
     const val = Math.abs(parseFloat(t.valor));
     if(t.tipo==='credito') monthData[key].receitas += val;
