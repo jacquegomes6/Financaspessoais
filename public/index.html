@@ -1252,6 +1252,8 @@ function buildDonut(catSpend) {
       const meta = cat._meta || cat.orcamento_mensal || 0;
       // diff: para receita = realizado - meta; para despesa = meta - realizado (positivo = disponível)
       const isReceita = cat.natureza==='receita';
+      // receita: diff = realizado - meta (positivo = acima da meta = bom)
+      // despesa: diff = meta - realizado (positivo = dentro do orcamento = bom, negativo = ultrapassou = ruim)
       const diff = isReceita ? val - meta : meta - absVal;
       const pct = meta > 0 ? Math.round(absVal/meta*100) : null;
       return {cat, val, absVal, meta, diff, pct};
@@ -1272,11 +1274,12 @@ function buildDonut(catSpend) {
     const valStr = isReceita ? '+'+fmt(val) : fmt(absVal);
     // Diferença: receita → acima da meta é BOM (verde), abaixo é ruim (vermelho)
     //            despesa → abaixo da meta é BOM (verde), acima é ruim (vermelho)
-    const diffOk = isReceita ? diff>=0 : diff<=0;
+    // diffOk: receita=acima da meta é bom; despesa=abaixo da meta é bom
+    const diffOk = isReceita ? diff >= 0 : diff >= 0; // diff = meta - absVal para despesa, positivo = dentro do orçamento
     const diffColor = diffOk ? 'var(--green)' : 'var(--red)';
-    const diffStr = isReceita
-      ? (diff>=0?'+':'')+fmt(diff)+' ('+pct+'%)'
-      : (absVal<=meta?'-':'+')+(fmt(Math.abs(diff)))+' ('+Math.abs(pct-100)+'%)';
+    const diffLabel = isReceita
+      ? (diff>=0 ? '+'+fmt(diff) : '-'+fmt(Math.abs(diff))) + ' (' + pct + '%)'
+      : (diff>=0 ? '-'+fmt(Math.abs(diff)) : '+'+fmt(Math.abs(diff))) + ' (' + pct + '%)';
     return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
       <div style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></div>
       <div style="flex:1;min-width:0">
@@ -1285,7 +1288,7 @@ function buildDonut(catSpend) {
       </div>
       <div style="text-align:right;flex-shrink:0">
         <div style="font-size:13px;font-weight:600;color:${valColor}">${valStr}</div>
-        ${meta>0?`<div style="font-size:11px;color:${diffColor}">${diffStr}</div>`:''}
+        ${meta>0?`<div style="font-size:11px;color:${diffColor}">${diffLabel}</div>`:''}
       </div>
     </div>`;
   }).join('');
