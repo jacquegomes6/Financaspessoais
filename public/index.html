@@ -1081,23 +1081,47 @@ async function loadDashboard(skipAllTx=false) {
   const despesaOk = despesas <= metaDespesa || metaDespesa === 0;
   const saldoOk = saldo >= 0;
 
+  // Diffs for cards
+  const diffReceita = receitas - metaReceita;
+  const diffDespesa = despesas - metaDespesa;
+  const diffSaldo = saldo - metaSaldo;
+  const pctReceita = metaReceita>0 ? Math.round(receitas/metaReceita*100) : null;
+  const pctDespesa = metaDespesa>0 ? Math.round(despesas/metaDespesa*100) : null;
+  const pctSaldo = metaSaldo!==0 ? Math.round(saldo/metaSaldo*100) : null;
+
   document.getElementById('dashCards').innerHTML = `
     <div class="metric-card green">
       <div class="metric-label">Receitas</div>
       <div class="metric-value" style="color:var(--green)">${fmt(receitas)}</div>
-      <div class="metric-sub" style="color:${receitaOk?'var(--green)':'var(--orange)'}">${metaReceita>0?'Meta: '+fmt(metaReceita):'este mês'}</div>
+      ${metaReceita>0?`
+        <div class="metric-sub" style="color:var(--text3)">Meta: ${fmt(metaReceita)}</div>
+        <div class="metric-sub" style="color:${diffReceita>=0?'var(--green)':'var(--red)'}">
+          ${diffReceita>=0?'+':'-'}${fmt(Math.abs(diffReceita))} (${pctReceita}%)
+        </div>`:`<div class="metric-sub">este mês</div>`}
     </div>
     <div class="metric-card red">
       <div class="metric-label">Despesas</div>
       <div class="metric-value" style="color:var(--red)">${fmt(despesas)}</div>
-      <div class="metric-sub" style="color:${despesaOk?'var(--text3)':'var(--red)'}">${metaDespesa>0?'Meta: '+fmt(metaDespesa):'este mês'}</div>
+      ${metaDespesa>0?`
+        <div class="metric-sub" style="color:var(--text3)">Meta: ${fmt(metaDespesa)}</div>
+        <div class="metric-sub" style="color:${diffDespesa<=0?'var(--green)':'var(--red)'}">
+          ${diffDespesa>=0?'+':'-'}${fmt(Math.abs(diffDespesa))} (${pctDespesa}%)
+        </div>`:`<div class="metric-sub">este mês</div>`}
     </div>
     <div class="metric-card blue">
       <div class="metric-label">Saldo Líquido</div>
       <div class="metric-value" style="color:${saldoOk?'var(--accent)':'var(--red)'}">${fmt(saldo)}</div>
-      <div class="metric-sub" style="color:${saldo>=metaSaldo?'var(--green)':'var(--orange)'}">${metaSaldo!==0?'Meta: '+fmt(metaSaldo):receitas>0?Math.round(saldo/receitas*100)+'% da receita':'-'}</div>
+      ${metaSaldo!==0?`
+        <div class="metric-sub" style="color:var(--text3)">Meta: ${fmt(metaSaldo)}</div>
+        <div class="metric-sub" style="color:${diffSaldo>=0?'var(--green)':'var(--red)'}">
+          ${diffSaldo>=0?'+':'-'}${fmt(Math.abs(diffSaldo))} (${pctSaldo}%)
+        </div>`:`<div class="metric-sub">${receitas>0?Math.round(saldo/receitas*100)+'% da receita':'-'}</div>`}
     </div>
-    <div class="metric-card purple"><div class="metric-label">Saldo Final</div><div class="metric-value" style="color:${saldoFinal>=0?'var(--green)':'var(--red)'}">${fmt(saldoFinal)}</div><div class="metric-sub">acumulado até ${months[mes-1]}</div></div>
+    <div class="metric-card purple">
+      <div class="metric-label">Saldo Final</div>
+      <div class="metric-value" style="color:${saldoFinal>=0?'var(--green)':'var(--red)'}">${fmt(saldoFinal)}</div>
+      <div class="metric-sub">acumulado até ${months[mes-1]}</div>
+    </div>
   `;
 
   if(!skipAllTx) ALL_TX = txMes||[];
