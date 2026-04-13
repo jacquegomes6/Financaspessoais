@@ -1428,7 +1428,8 @@ async function updateTxCat(id, catId) {
 }
 
 async function updateTxComment(id, comment) {
-  await sbClient.from('transacoes').update({comentario: comment||null}).eq('id', id);
+  const {error} = await sbClient.from('transacoes').update({comentario: comment||null}).eq('id', id);
+  if(error) { toast('Erro ao salvar comentário', 'error'); return; }
   const tx = ALL_TX.find(t => t.id === id);
   if(tx) tx.comentario = comment||null;
 }
@@ -1447,7 +1448,7 @@ async function deleteTx(id) {
 
 function openEditTx(id) {
   const tx = ALL_TX.find(t => t.id === id);
-  if(!tx) return;
+  if(!tx) { toast('Transação não encontrada', 'error'); return; }
   document.getElementById('editTxId').value = id;
   document.getElementById('editTxDate').value = tx.data_transacao || '';
   document.getElementById('editTxPayDate').value = tx.data_pagamento || tx.data_transacao || '';
@@ -1458,7 +1459,10 @@ function openEditTx(id) {
   const sel = document.getElementById('editTxCat');
   sel.innerHTML = '<option value="">-- Sem categoria --</option>' +
     CATS.map(c => `<option value="${c.id}" ${c.id===tx.categoria_id?'selected':''}>${c.icone} ${c.nome}</option>`).join('');
-  document.getElementById('editTxModal').classList.add('active');
+  // Clear and re-open modal to reset state
+  const modal = document.getElementById('editTxModal');
+  modal.classList.remove('active');
+  requestAnimationFrame(() => modal.classList.add('active'));
 }
 
 async function saveEditTx() {
@@ -1476,9 +1480,11 @@ async function saveEditTx() {
   if(!data.valor) { toast('Informe um valor válido', 'error'); return; }
   const {error} = await sbClient.from('transacoes').update(data).eq('id', id);
   if(error) { toast('Erro ao salvar: '+error.message, 'error'); return; }
+  // Update local array
   const idx = ALL_TX.findIndex(t => t.id === id);
   if(idx >= 0) ALL_TX[idx] = {...ALL_TX[idx], ...data};
   closeModal('editTxModal');
+  // Re-render table so all dropdowns and fields are fresh
   filterTx();
   toast('Transação atualizada!', 'success');
   await loadDashboard();
