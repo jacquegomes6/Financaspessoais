@@ -1009,7 +1009,7 @@ async function deleteCategory(id) {
 // =============================================
 // DASHBOARD
 // =============================================
-async function loadDashboard() {
+async function loadDashboard(skipAllTx=false) {
   const mes = selectedMonth;
   const ano = selectedYear;
   updateGreeting();
@@ -1099,7 +1099,7 @@ async function loadDashboard() {
     <div class="metric-card purple"><div class="metric-label">Saldo Final</div><div class="metric-value" style="color:${saldoFinal>=0?'var(--green)':'var(--red)'}">${fmt(saldoFinal)}</div><div class="metric-sub">acumulado até ${months[mes-1]}</div></div>
   `;
 
-  ALL_TX = txMes||[];
+  if(!skipAllTx) ALL_TX = txMes||[];
 
   await buildBarChart();
   await loadObjectives();
@@ -1423,7 +1423,7 @@ async function updateTxCat(id, catId) {
   if(tx) tx.categoria_id = catId||null;
   toast('Categoria atualizada!', 'success');
   await loadCategoryBudgets();
-  await loadDashboard();
+  await loadDashboard(true);
   await loadObjectives();
 }
 
@@ -1487,7 +1487,8 @@ async function saveEditTx() {
   // Re-render table so all dropdowns and fields are fresh
   filterTx();
   toast('Transação atualizada!', 'success');
-  await loadDashboard();
+  // Update dashboard without overwriting ALL_TX
+  await loadDashboard(true);
 }
 
 // =============================================
