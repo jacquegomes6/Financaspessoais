@@ -840,8 +840,8 @@ async function loadCategories() {
 async function loadCategoryBudgets() {
   const {data:objs} = await sbClient.from('objetivos').select('*').eq('mes',selectedMonth).eq('ano',selectedYear);
   const {data:txMes} = await sbClient.from('transacoes').select('*').eq('confirmado',true)
-    .gte('data_transacao',`${selectedYear}-${String(selectedMonth).padStart(2,'0')}-01`)
-    .lt('data_transacao',selectedMonth===12?`${selectedYear+1}-01-01`:`${selectedYear}-${String(selectedMonth+1).padStart(2,'0')}-01`);
+    .gte('data_pagamento',`${selectedYear}-${String(selectedMonth).padStart(2,'0')}-01`)
+    .lt('data_pagamento',selectedMonth===12?`${selectedYear+1}-01-01`:`${selectedYear}-${String(selectedMonth+1).padStart(2,'0')}-01`);
   const budgetMap={};
   (objs||[]).forEach(o=>budgetMap[o.categoria_id]=parseFloat(o.valor_objetivo));
   const spendMap={};
@@ -1018,8 +1018,8 @@ async function loadDashboard() {
   // Busca transações do mês
   const {data:txMes} = await sbClient.from('transacoes')
     .select('*').eq('confirmado',true)
-    .gte('data_transacao', `${ano}-${String(mes).padStart(2,'0')}-01`)
-    .lt('data_transacao', mes===12?`${ano+1}-01-01`:`${ano}-${String(mes+1).padStart(2,'0')}-01`);
+    .gte('data_pagamento', `${ano}-${String(mes).padStart(2,'0')}-01`)
+    .lt('data_pagamento', mes===12?`${ano+1}-01-01`:`${ano}-${String(mes+1).padStart(2,'0')}-01`);
 
   // Categorias de receita e despesa
   const catReceita = new Set(CATS.filter(c=>c.natureza==='receita').map(c=>c.id));
@@ -1051,7 +1051,7 @@ async function loadDashboard() {
   // Saldo final acumulado até o mês selecionado
   const mesEndAcum = mes===12?`${ano+1}-01-01`:`${ano}-${String(mes+1).padStart(2,'0')}-01`;
   const {data:txAcum} = await sbClient.from('transacoes').select('valor,tipo')
-    .eq('confirmado',true).lt('data_transacao', mesEndAcum);
+    .eq('confirmado',true).lt('data_pagamento', mesEndAcum);
   const saldoFinal = (txAcum||[]).reduce((s,t)=>
     s + (t.tipo==='credito'?Math.abs(parseFloat(t.valor)):-Math.abs(parseFloat(t.valor))), 0);
   const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
@@ -2221,8 +2221,8 @@ async function loadObjectives() {
   const ano=selectedYear;
   const {data:objs}=await sbClient.from('objetivos').select('*').eq('mes',mes).eq('ano',ano);
   const {data:txMes}=await sbClient.from('transacoes').select('*').eq('confirmado',true)
-    .gte('data_transacao',`${ano}-${String(mes).padStart(2,'0')}-01`)
-    .lt('data_transacao',mes===12?`${ano+1}-01-01`:`${ano}-${String(mes+1).padStart(2,'0')}-01`);
+    .gte('data_pagamento',`${ano}-${String(mes).padStart(2,'0')}-01`)
+    .lt('data_pagamento',mes===12?`${ano+1}-01-01`:`${ano}-${String(mes+1).padStart(2,'0')}-01`);
 
   const catSpend={};
   (txMes||[]).forEach(t=>{
