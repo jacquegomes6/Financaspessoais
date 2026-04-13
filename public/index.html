@@ -1151,7 +1151,14 @@ async function buildBarChart() {
       });
     });
 
-    const last6 = data.slice(-6);
+    // Show 3 months before + selected month + 3 months after
+    const selKey = `${selectedYear}-${String(selectedMonth).padStart(2,'0')}`;
+    const allKeys = data.map(d=>`${d.ano}-${String(parseInt(d.mes)).padStart(2,'0')}`);
+    const selIdx = allKeys.indexOf(selKey);
+    const centerIdx = selIdx >= 0 ? selIdx : data.length - 1;
+    const startIdx = Math.max(0, centerIdx - 3);
+    const endIdx = Math.min(data.length - 1, centerIdx + 3);
+    const last6 = data.slice(startIdx, endIdx + 1);
     const maxVal = Math.max(...last6.map(d=>{
       const key = `${d.ano}-${String(parseInt(d.mes)).padStart(2,'0')}`;
       const b = budgetMap[key]||{receita:0,despesa:0};
@@ -1187,10 +1194,11 @@ async function buildBarChart() {
   if(!txs||!txs.length) { chart.innerHTML='<div style="color:var(--text3);font-size:13px">Sem dados para esta categoria</div>'; return; }
 
   // Group by month (last 6 months)
-  const now = new Date();
+  // 3 months before + selected month + 3 months after
+  const centerDate = new Date(selectedYear, selectedMonth - 1, 1);
   const monthData = {};
-  for(let i=5; i>=0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+  for(let i=-3; i<=3; i++) {
+    const d = new Date(centerDate.getFullYear(), centerDate.getMonth()+i, 1);
     const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
     monthData[key] = {receitas:0, despesas:0, mes:d.getMonth()+1, ano:d.getFullYear()};
   }
