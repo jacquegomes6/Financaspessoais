@@ -2007,16 +2007,10 @@ async function categorizarComIA(txs) {
 
   const catList=CATS.map(c=>`- id:${c.id} nome:"${c.nome}" icone:${c.icone}`).join('\n');
   const exemplosList=exemplos.map(e=>`"${e.descricao}" → ${catMap[e.categoria_id]||e.categoria_id}`).join('\n');
-  const txList=txs.map((t,i)=>`${i}: "${t.descricao}" (R$ ${t.valor})`).join('\n');
 
-  try {
-    const res=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:2000,
-        messages:[{role:'user',content:`Você é um classificador de transações financeiras brasileiras. Use o histórico de classificações anteriores do usuário como principal referência — ele reflete os critérios pessoais de categorização.
+  const BATCH=30;
+  const resultMap={};
+  const systemPrompt=`Você é um classificador de transações financeiras brasileiras. Use o histórico de classificações anteriores do usuário como principal referência.
 
 Categorias disponíveis:
 ${catList}
@@ -2024,33 +2018,45 @@ ${catList}
 Histórico de classificações anteriores do usuário (aprenda com eles):
 ${exemplosList||'(nenhum histórico ainda)'}
 
-Transações para classificar agora:
-${txList}
-
 Regras:
 - Priorize o histórico: se uma descrição similar já foi classificada antes, use a mesma categoria.
 - Se não houver histórico similar, use seu julgamento com base no nome da transação.
-- Classifique TODAS as transações, mesmo sem histórico.
-- Responda APENAS com JSON válido sem markdown.
+- Classifique TODAS as transações recebidas.
+- Responda APENAS com JSON válido sem markdown, sem texto extra.
 
-Formato: [{"index":0,"categoria_id":"uuid-exato-da-categoria"},...]`}]
-      })
-    });
-    const data=await res.json();
-    if(data.error) throw new Error(data.error.message);
-    const text=data.content[0].text.replace(/```json|```/g,'').trim();
-    const result=JSON.parse(text);
-    return txs.map((t,i)=>{
-      const match=result.find(r=>r.index===i);
-      const catId=match?.categoria_id;
-      // Valida que o id retornado existe de fato nas categorias
-      const catValida=catId && CATS.some(c=>c.id===catId);
-      return {...t,categoria_id:catValida?catId:null,ia:!!catValida};
-    });
-  } catch(e) {
-    console.error('AI categorization error:',e);
-    return txs.map(t=>({...t,categoria_id:null,ia:false}));
+Formato: [{"index":0,"categoria_id":"uuid-exato-da-categoria"},...]`;
+
+  for(let start=0;start<txs.length;start+=BATCH){
+    const batch=txs.slice(start,start+BATCH);
+    const txList=batch.map((t,bi)=>`${start+bi}: "${t.descricao}" (R$ ${t.valor})`).join('\n');
+    const loteNum=Math.floor(start/BATCH)+1;
+    const totalLotes=Math.ceil(txs.length/BATCH);
+    if(totalLotes>1) toast(`Categorizando lote ${loteNum} de ${totalLotes}...`,'info');
+    try {
+      const res=await fetch('https://api.anthropic.com/v1/messages',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+        body:JSON.stringify({
+          model:'claude-sonnet-4-20250514',
+          max_tokens:4000,
+          messages:[{role:'user',content:systemPrompt+'\n\nTransações para classificar agora:\n'+txList}]
+        })
+      });
+      const data=await res.json();
+      if(data.error) throw new Error(data.error.message);
+      const text=data.content[0].text.replace(/```json|```/g,'').trim();
+      const result=JSON.parse(text);
+      result.forEach(r=>{ resultMap[r.index]=r.categoria_id; });
+    } catch(e) {
+      console.error('AI categorization error (lote '+loteNum+'):',e);
+    }
   }
+
+  return txs.map((t,i)=>{
+    const catId=resultMap[i];
+    const catValida=catId && CATS.some(c=>c.id===catId);
+    return {...t,categoria_id:catValida?catId:null,ia:!!catValida};
+  });
 }
 
 function buildCatOpts(selectedId) {
