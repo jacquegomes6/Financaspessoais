@@ -1765,24 +1765,13 @@ async function callAIForCSV(structuredText, bankHint) {
         max_tokens: 8000,
         messages: [{
           role: 'user',
-          content: 'Voce e um especialista em extratos bancarios brasileiros do ' + bankHint + '.\n\n' +
-            'PASSO 1: Encontre o ano do extrato. No Itau aparece no cabecalho como "jan 2026" ou "extrato mensal ... jan 2026". NUNCA use numero de agencia (4 digitos como 8052) como ano.\n\n' +
-            'PASSO 2: Gere um CSV com APENAS as transacoes reais. Primeira linha: data,descricao,valor,tipo\n\n' +
-            'REGRAS:\n' +
-            '- data: YYYY-MM-DD usando o ano encontrado no PASSO 1. Datas parciais como 02/01 viram AAAA-01-02\n' +
-            '- valor: numero positivo sem R$ (ex: 113.75)\n' +
-            '- tipo: debito para saidas, credito para entradas\n' +
-            '- Itau: valor com hifen no final (113,75-) = debito; valor sem hifen na coluna entradas = credito\n\n' +
-            'IGNORAR COMPLETAMENTE (nao incluir no CSV):\n' +
-            '- Res Aplic Aut Mais, Rend Pago Aplic Aut Mais, SALDO APLIC AUT MAIS\n' +
-            '- Apl Aplic Aut Mais (aplicacao automatica)\n' +
-            '- Saldo anterior, Saldo final, Saldo em C/C\n' +
-            '- Linhas com apenas numeros que sao saldos (ex: 5.343,03 sem descricao)\n' +
-            '- Totais, resumos, cabecalhos, rodapes, indicadores de mercado\n\n' +
-            'INCLUIR:\n' +
-            '- PIX QRS, PIX TRANSF, PAY, PAG BOLETO, DA (debito automatico), IOF, TAR, Int/, Financ, Rshop, Remuneracao/Salario\n\n' +
-            'Gere APENAS o CSV, sem explicacoes, sem markdown, sem blocos de codigo.\n\n' +
-            'Texto do extrato:\n' + structuredText
+          content: 'Extrato bancário brasileiro (' + bankHint + '). Gere CSV com as transações reais. SEM markdown, SEM explicações.\n' +
+            'Formato: data(YYYY-MM-DD),descricao,valor(positivo),tipo(debito/credito)\n' +
+            'Ano: busque no cabeçalho (ex: "jan 2026"). NUNCA use número de agência como ano.\n' +
+            'Itau: valor com hífen final = debito; sem hífen = credito.\n' +
+            'IGNORAR: Res/Rend/Apl Aplic Aut Mais, saldos, totais, cabeçalhos.\n' +
+            'INCLUIR: PIX, PAY, PAG, DA, IOF, TAR, Rshop, salário.\n\n' +
+            structuredText
         }]
       })
     });
@@ -2025,23 +2014,17 @@ async function categorizarComIA(txs) {
   const catList=CATS.map(c=>`- id:${c.id} nome:"${c.nome}" icone:${c.icone}`).join('\n');
   const exemplosList=exemplos.map(e=>`"${e.descricao}" → ${catMap[e.categoria_id]||e.categoria_id}`).join('\n');
 
-  const BATCH=30;
+  const BATCH=60;
   const resultMap={};
-  const systemPrompt=`Você é um classificador de transações financeiras brasileiras. Use o histórico de classificações anteriores do usuário como principal referência.
+  const systemPrompt=`Classifique transações bancárias brasileiras nas categorias abaixo. Priorize o histórico do usuário. Responda SOMENTE JSON, sem texto extra.
 
-Categorias disponíveis:
+CATEGORIAS:
 ${catList}
 
-Histórico de classificações anteriores do usuário (aprenda com eles):
-${exemplosList||'(nenhum histórico ainda)'}
+HISTÓRICO DO USUÁRIO:
+${exemplosList||'(sem histórico)'}
 
-Regras:
-- Priorize o histórico: se uma descrição similar já foi classificada antes, use a mesma categoria.
-- Se não houver histórico similar, use seu julgamento com base no nome da transação.
-- Classifique TODAS as transações recebidas.
-- Responda APENAS com JSON válido sem markdown, sem texto extra.
-
-Formato: [{"index":0,"categoria_id":"uuid-exato-da-categoria"},...]`;
+FORMATO: [{"index":0,"categoria_id":"uuid"},...]`;
 
   // Validate API key format before starting
   if(!apiKey.startsWith('sk-ant-')) {
@@ -2049,12 +2032,17 @@ Formato: [{"index":0,"categoria_id":"uuid-exato-da-categoria"},...]`;
     return txs.map(t=>({...t,categoria_id:null,ia:false}));
   }
 
+  // Monta todos os lotes
+  const batches=[];
   for(let start=0;start<txs.length;start+=BATCH){
     const batch=txs.slice(start,start+BATCH);
-    const txList=batch.map((t,bi)=>`${start+bi}: "${t.descricao}" (R$ ${t.valor})`).join('\n');
-    const loteNum=Math.floor(start/BATCH)+1;
-    const totalLotes=Math.ceil(txs.length/BATCH);
-    toast(`Categorizando lote ${loteNum} de ${totalLotes}...`,'info');
+    batches.push({start,txList:batch.map((t,bi)=>`${start+bi}: "${t.descricao}" (R$ ${t.valor})`).join('\n')});
+  }
+  const totalLotes=batches.length;
+  toast(`Categorizando ${txs.length} transações em ${totalLotes} lote${totalLotes>1?'s':''}...`,'info');
+
+  // Executa todos os lotes em paralelo
+  await Promise.all(batches.map(async ({start,txList},li)=>{
     try {
       const res=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
@@ -2062,37 +2050,25 @@ Formato: [{"index":0,"categoria_id":"uuid-exato-da-categoria"},...]`;
         body:JSON.stringify({
           model:'claude-sonnet-4-20250514',
           max_tokens:4000,
-          messages:[{role:'user',content:systemPrompt+'\n\nTransações para classificar agora:\n'+txList}]
+          messages:[{role:'user',content:systemPrompt+'\n\nTransações:\n'+txList}]
         })
       });
       const data=await res.json();
-      if(data.error) {
-        if(data.error.type==='authentication_error') {
-          toast('Chave Anthropic inválida (401). Acesse Configurações e atualize a chave.','error');
-          break;
-        }
+      if(data.error){
+        if(data.error.type==='authentication_error') toast('Chave Anthropic inválida. Atualize em Configurações.','error');
         throw new Error(data.error.message);
       }
       const text=data.content[0].text.replace(/```json|```/g,'').trim();
-      console.log('[IA] Lote '+loteNum+' resposta raw:', text.substring(0,300));
-      console.log('[IA] CATS disponiveis:', CATS.length, CATS.map(c=>c.id+':'+c.nome));
       const result=JSON.parse(text);
-      console.log('[IA] Resultado parsed:', result.slice(0,3));
-      result.forEach(r=>{
-        const uuid=(r.categoria_id||'').trim();
-        resultMap[r.index]=uuid;
-      });
-    } catch(e) {
-      console.error('AI categorization error (lote '+loteNum+'):',e);
+      result.forEach(r=>{ resultMap[r.index]=(r.categoria_id||'').trim(); });
+    } catch(e){
+      console.error('AI categorization error (lote '+(li+1)+'):', e.message);
     }
-  }
+  }));
 
-  console.log('[IA] resultMap final:', Object.keys(resultMap).length, 'entradas');
-  console.log('[IA] Exemplo:', JSON.stringify(Object.entries(resultMap).slice(0,3)));
   return txs.map((t,i)=>{
-    const catId=(resultMap[i]||'').trim();
-    const catValida=catId && CATS.some(c=>c.id.trim()===catId);
-    if(i<3) console.log('[IA] tx',i,'catId=',catId,'valida=',catValida);
+    const catId=resultMap[i]||'';
+    const catValida=catId && CATS.some(c=>c.id===catId);
     return {...t,categoria_id:catValida?catId:null,ia:!!catValida};
   });
 }
