@@ -1768,7 +1768,7 @@ async function callAIForCSV(structuredText, bankHint) {
           content: 'Extrato bancário brasileiro (' + bankHint + '). Gere CSV com as transações reais. SEM markdown, SEM explicações.\n' +
             'Formato: data(YYYY-MM-DD),descricao,valor(positivo),tipo(debito/credito)\n' +
             'Ano: busque no cabeçalho (ex: "jan 2026"). NUNCA use número de agência como ano.\n' +
-
+            'DATA: use SEMPRE a data da coluna esquerda do extrato (ex: "03/02"). NUNCA use datas que aparecem dentro do nome da transação (ex: em "Rshop-Uber 01/02" ignore o 01/02 e use a data da coluna). Todas as transações agrupadas sob uma data de coluna recebem essa mesma data.\n' +
             'Itau: valor com hífen final = debito; sem hífen = credito.\n' +
             'IGNORAR: Res/Rend/Apl Aplic Aut Mais, saldos, totais, cabeçalhos.\n' +
             'INCLUIR: PIX, PAY, PAG, DA, IOF, TAR, Rshop, salário.\n\n' +
