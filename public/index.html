@@ -1553,6 +1553,7 @@ async function processFile(file) {
 
   // Apply universal filter to remove bank internal lines (same filter as PDF)
   txs = filterBankInternalLines(txs);
+  txs = corrigirDatasItau(txs);
   if(!txs.length) { toast('Nenhuma transação encontrada no arquivo','error'); return; }
   const apiKey = STORE.get('anthropicKey');
   if(!apiKey) {
@@ -1768,6 +1769,7 @@ async function callAIForCSV(structuredText, bankHint) {
           content: 'Extrato bancário brasileiro (' + bankHint + '). Gere CSV com as transações reais. SEM markdown, SEM explicações.\n' +
             'Formato: data(YYYY-MM-DD),descricao,valor(positivo),tipo(debito/credito)\n' +
             'Ano: busque no cabeçalho (ex: "jan 2026"). NUNCA use número de agência como ano.\n' +
+            'DATA REAL: O Itaú agrupa transações por data de processamento, mas a data real está no nome. Ex: "Rshop-Uber 01/02" → data real é 01/02. "PAY -PREGO 31/01" → data real é 31/01. "PIX QRS LOJA 23/02" → data real é 23/02. SEMPRE use a data do nome quando disponível, não a data de agrupamento.\n' +
             'Itau: valor com hífen final = debito; sem hífen = credito.\n' +
             'IGNORAR: Res/Rend/Apl Aplic Aut Mais, saldos, totais, cabeçalhos.\n' +
             'INCLUIR: PIX, PAY, PAG, DA, IOF, TAR, Rshop, salário.\n\n' +
@@ -1845,6 +1847,26 @@ function buildItauCSVFallback(lines) {
   });
 
   return csvLines.join('\n');
+}
+
+// Extrai data real do nome da transação quando o Itaú agrupa por data de processamento
+// Ex: "Rshop-Uber 01/02" com ano 2026 → 2026-02-01
+function corrigirDatasItau(txs) {
+  return txs.map(tx => {
+    if(!tx.descricao || !tx.data_transacao) return tx;
+    // Procura padrão DD/MM no final do nome (ex: "01/02", "31/01", "23/02")
+    const m = tx.descricao.match(/\b(\d{2})\/(\d{2})\s*$/);
+    if(!m) return tx;
+    const dia = m[1], mes = m[2];
+    // Pega o ano da data original
+    const anoOriginal = tx.data_transacao.substring(0, 4);
+    // Monta nova data
+    const novaData = `${anoOriginal}-${mes}-${dia}`;
+    // Valida que é uma data plausível (não futura demais, não muito antiga)
+    const d = new Date(novaData + 'T00:00:00');
+    if(isNaN(d.getTime())) return tx;
+    return {...tx, data_transacao: novaData, data_pagamento: novaData};
+  });
 }
 
 function filterBankInternalLines(txs) {
