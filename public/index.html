@@ -834,6 +834,7 @@ async function loadCategories() {
   if(!error && data) {
     CATS = data;
     populateCatFilters();
+    refreshCatSelects();
     await loadCategoryBudgets();
   }
 }
@@ -917,6 +918,7 @@ async function createNewCategory() {
   CATS.unshift(data);
   populateCatFilters();
   renderCategories();
+  refreshCatSelects();
   // Scroll to top of list
   document.getElementById('catList').scrollIntoView({behavior:'smooth'});
   // Focus first name field
@@ -936,6 +938,7 @@ async function updateCatField(id, field, value) {
   const cat = CATS.find(c=>c.id===id);
   if(cat) cat[field] = String(value).trim();
   if(field==='cor' || field==='icone') renderCategories();
+  refreshCatSelects();
   // Refresh objGrid in dashboard so new category appears
   await loadCategoryBudgets();
   loadObjectives();
@@ -1973,12 +1976,37 @@ async function categorizarComIA(txs) {
   const apiKey=STORE.get('anthropicKey');
   if(!apiKey||!CATS.length) return txs.map(t=>({...t,categoria_id:null,ia:false}));
 
-  // Busca padrões aprendidos
-  const {data:padroes}=await sbClient.from('padroes_categorizacao').select('*');
+  // 1. Busca padrões aprendidos (tabela de padrões)
+  const {data:padroes}=await sbClient.from('padroes_categorizacao').select('*').limit(200);
   const padraoMap={};
   (padroes||[]).forEach(p=>{ if(!padraoMap[p.texto_padrao]) padraoMap[p.texto_padrao]=p.categoria_id; });
 
+  // 2. Busca histórico real: transações já classificadas manualmente
+  const {data:historico}=await sbClient.from('transacoes')
+    .select('descricao,categoria_id')
+    .eq('confirmado',true)
+    .not('categoria_id','is',null)
+    .order('criado_em',{ascending:false})
+    .limit(150);
+
+  // Monta mapa de exemplos reais: descrição → categoria_id (sem duplicatas)
+  const exemploMap={};
+  (historico||[]).forEach(h=>{
+    const key=h.descricao.substring(0,60).toLowerCase();
+    if(!exemploMap[key]) exemploMap[key]={descricao:h.descricao,categoria_id:h.categoria_id};
+  });
+  // Também adiciona os padrões aprendidos que não estejam no histórico
+  Object.entries(padraoMap).forEach(([texto,catId])=>{
+    const key=texto.substring(0,60).toLowerCase();
+    if(!exemploMap[key]) exemploMap[key]={descricao:texto,categoria_id:catId};
+  });
+
+  const exemplos=Object.values(exemploMap).slice(0,120);
+  const catMap={};
+  CATS.forEach(c=>catMap[c.id]=c.nome);
+
   const catList=CATS.map(c=>`- id:${c.id} nome:"${c.nome}" icone:${c.icone}`).join('\n');
+  const exemplosList=exemplos.map(e=>`"${e.descricao}" → ${catMap[e.categoria_id]||e.categoria_id}`).join('\n');
   const txList=txs.map((t,i)=>`${i}: "${t.descricao}" (R$ ${t.valor})`).join('\n');
 
   try {
@@ -1987,36 +2015,63 @@ async function categorizarComIA(txs) {
       headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
       body:JSON.stringify({
         model:'claude-sonnet-4-20250514',
-        max_tokens:1000,
-        messages:[{role:'user',content:`Categorize estas transações financeiras brasileiras. Responda APENAS com JSON array sem markdown.
+        max_tokens:2000,
+        messages:[{role:'user',content:`Você é um classificador de transações financeiras brasileiras. Use o histórico de classificações anteriores do usuário como principal referência — ele reflete os critérios pessoais de categorização.
 
 Categorias disponíveis:
 ${catList}
 
-Transações:
+Histórico de classificações anteriores do usuário (aprenda com eles):
+${exemplosList||'(nenhum histórico ainda)'}
+
+Transações para classificar agora:
 ${txList}
 
-Padrões aprendidos anteriormente: ${JSON.stringify(padraoMap)}
+Regras:
+- Priorize o histórico: se uma descrição similar já foi classificada antes, use a mesma categoria.
+- Se não houver histórico similar, use seu julgamento com base no nome da transação.
+- Classifique TODAS as transações, mesmo sem histórico.
+- Responda APENAS com JSON válido sem markdown.
 
-Responda com: [{"index":0,"categoria_id":"uuid-da-categoria"},...]`}]
+Formato: [{"index":0,"categoria_id":"uuid-exato-da-categoria"},...]`}]
       })
     });
     const data=await res.json();
+    if(data.error) throw new Error(data.error.message);
     const text=data.content[0].text.replace(/```json|```/g,'').trim();
     const result=JSON.parse(text);
     return txs.map((t,i)=>{
       const match=result.find(r=>r.index===i);
-      return {...t,categoria_id:match?.categoria_id||null,ia:!!match?.categoria_id};
+      const catId=match?.categoria_id;
+      // Valida que o id retornado existe de fato nas categorias
+      const catValida=catId && CATS.some(c=>c.id===catId);
+      return {...t,categoria_id:catValida?catId:null,ia:!!catValida};
     });
   } catch(e) {
-    console.error('AI error:',e);
+    console.error('AI categorization error:',e);
     return txs.map(t=>({...t,categoria_id:null,ia:false}));
   }
 }
 
+function buildCatOpts(selectedId) {
+  return '<option value="">-- Selecionar --</option>' +
+    CATS.map(c=>`<option value="${c.id}" ${c.id===selectedId?'selected':''}>${c.icone} ${c.nome}</option>`).join('');
+}
+
+function refreshCatSelects() {
+  // Atualiza todos os selects de categoria na tela de review sem recriar as linhas
+  if(!pendingTx.length) return;
+  pendingTx.forEach((_,i)=>{
+    const sel=document.getElementById('catSel'+i);
+    if(!sel) return;
+    const currentVal=sel.value;
+    sel.innerHTML=buildCatOpts(currentVal||'');
+    if(currentVal) sel.value=currentVal;
+  });
+}
+
 function mostrarReview(txs, fileName) {
   document.getElementById('reviewCount').textContent = `${txs.length} transações de "${fileName}"`;
-  const catOpts=CATS.map(c=>`<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
   document.getElementById('reviewBody').innerHTML=txs.map((tx,i)=>`
     <tr>
       <td><input type="checkbox" class="confirm-cb" id="chk${i}" checked></td>
@@ -2024,12 +2079,12 @@ function mostrarReview(txs, fileName) {
       <td><input class="comment-field" style="width:100px" id="dtPay${i}" value="${tx.data_pagamento||tx.data_transacao||''}"></td>
       <td style="max-width:200px;font-size:13px">${tx.descricao}${tx.ia?'<br><span class="ai-badge">✦ IA</span>':''}</td>
       <td style="font-weight:600;color:${tx.tipo==='debito'?'var(--red)':'var(--green)'}">${tx.tipo==='debito'?'-':'+'}${fmt(tx.valor)}</td>
-      <td><select class="cat-select" id="catSel${i}"><option value="">-- Selecionar --</option>${catOpts}</select></td>
+      <td><select class="cat-select" id="catSel${i}"><option value="">-- Selecionar --</option>${buildCatOpts(tx.categoria_id||'')}</select></td>
       <td><select class="cat-select" id="tipoSel${i}"><option value="debito" ${tx.tipo==='debito'?'selected':''}>Débito</option><option value="credito" ${tx.tipo==='credito'?'selected':''}>Crédito</option></select></td>
       <td><input class="comment-field" id="comment${i}" placeholder="Comentário..." value=""></td>
     </tr>`).join('');
 
-  // Seta categorias
+  // Seta categorias sugeridas pela IA
   txs.forEach((tx,i)=>{
     if(tx.categoria_id) document.getElementById('catSel'+i).value=tx.categoria_id;
   });
