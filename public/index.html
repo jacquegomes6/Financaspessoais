@@ -507,6 +507,7 @@ input[type="file"] { display:none; }
           <div class="settings-item">
             <div class="settings-icon" style="background:rgba(175,82,222,0.1)">🤖</div>
             <div style="flex:1"><div class="settings-label">Claude AI</div><div class="settings-sub">Categorização inteligente</div></div>
+            <button class="btn btn-ghost btn-sm" onclick="updateAnthropicKey()" style="margin-right:8px">Atualizar chave</button>
             <span class="chip" id="aiChip">Verificando</span>
           </div>
 
@@ -756,6 +757,15 @@ function resetConfig() {
   if(!confirm('Isso vai apagar as credenciais salvas. Confirmar?')) return;
   STORE.del('sbUrl'); STORE.del('sbKey'); STORE.del('anthropicKey');
   location.reload();
+}
+
+function updateAnthropicKey() {
+  const key = prompt('Cole sua nova chave Anthropic (sk-ant-api03-...):');
+  if(!key) return;
+  if(!key.startsWith('sk-ant-')) { toast('Chave inválida. Deve começar com sk-ant-...','error'); return; }
+  STORE.set('anthropicKey', key.trim());
+  checkAiKey();
+  toast('Chave Anthropic atualizada!','success');
 }
 
 async function bootApp() {
@@ -1544,6 +1554,13 @@ async function processFile(file) {
   // Apply universal filter to remove bank internal lines (same filter as PDF)
   txs = filterBankInternalLines(txs);
   if(!txs.length) { toast('Nenhuma transação encontrada no arquivo','error'); return; }
+  const apiKey = STORE.get('anthropicKey');
+  if(!apiKey) {
+    toast(`${txs.length} transações encontradas. Configure a chave Anthropic em Configurações para categorização automática.`,'info');
+    pendingTx = txs.map(t=>({...t,categoria_id:null,ia:false}));
+    mostrarReview(pendingTx, file.name);
+    return;
+  }
   toast(`${txs.length} transações encontradas. Categorizando com IA...`,'info');
   pendingTx = await categorizarComIA(txs);
   mostrarReview(pendingTx, file.name);
@@ -2026,12 +2043,18 @@ Regras:
 
 Formato: [{"index":0,"categoria_id":"uuid-exato-da-categoria"},...]`;
 
+  // Validate API key format before starting
+  if(!apiKey.startsWith('sk-ant-')) {
+    toast('Chave Anthropic inválida. Acesse Configurações e cole uma chave válida (começa com sk-ant-...)','error');
+    return txs.map(t=>({...t,categoria_id:null,ia:false}));
+  }
+
   for(let start=0;start<txs.length;start+=BATCH){
     const batch=txs.slice(start,start+BATCH);
     const txList=batch.map((t,bi)=>`${start+bi}: "${t.descricao}" (R$ ${t.valor})`).join('\n');
     const loteNum=Math.floor(start/BATCH)+1;
     const totalLotes=Math.ceil(txs.length/BATCH);
-    if(totalLotes>1) toast(`Categorizando lote ${loteNum} de ${totalLotes}...`,'info');
+    toast(`Categorizando lote ${loteNum} de ${totalLotes}...`,'info');
     try {
       const res=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
@@ -2043,7 +2066,13 @@ Formato: [{"index":0,"categoria_id":"uuid-exato-da-categoria"},...]`;
         })
       });
       const data=await res.json();
-      if(data.error) throw new Error(data.error.message);
+      if(data.error) {
+        if(data.error.type==='authentication_error') {
+          toast('Chave Anthropic inválida (401). Acesse Configurações e atualize a chave.','error');
+          break;
+        }
+        throw new Error(data.error.message);
+      }
       const text=data.content[0].text.replace(/```json|```/g,'').trim();
       console.log('[IA] Lote '+loteNum+' resposta raw:', text.substring(0,300));
       console.log('[IA] CATS disponiveis:', CATS.length, CATS.map(c=>c.id+':'+c.nome));
