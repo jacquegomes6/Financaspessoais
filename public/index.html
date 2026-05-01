@@ -2045,16 +2045,25 @@ Formato: [{"index":0,"categoria_id":"uuid-exato-da-categoria"},...]`;
       const data=await res.json();
       if(data.error) throw new Error(data.error.message);
       const text=data.content[0].text.replace(/```json|```/g,'').trim();
+      console.log('[IA] Lote '+loteNum+' resposta raw:', text.substring(0,300));
+      console.log('[IA] CATS disponiveis:', CATS.length, CATS.map(c=>c.id+':'+c.nome));
       const result=JSON.parse(text);
-      result.forEach(r=>{ resultMap[r.index]=r.categoria_id; });
+      console.log('[IA] Resultado parsed:', result.slice(0,3));
+      result.forEach(r=>{
+        const uuid=(r.categoria_id||'').trim();
+        resultMap[r.index]=uuid;
+      });
     } catch(e) {
       console.error('AI categorization error (lote '+loteNum+'):',e);
     }
   }
 
+  console.log('[IA] resultMap final:', Object.keys(resultMap).length, 'entradas');
+  console.log('[IA] Exemplo:', JSON.stringify(Object.entries(resultMap).slice(0,3)));
   return txs.map((t,i)=>{
-    const catId=resultMap[i];
-    const catValida=catId && CATS.some(c=>c.id===catId);
+    const catId=(resultMap[i]||'').trim();
+    const catValida=catId && CATS.some(c=>c.id.trim()===catId);
+    if(i<3) console.log('[IA] tx',i,'catId=',catId,'valida=',catValida);
     return {...t,categoria_id:catValida?catId:null,ia:!!catValida};
   });
 }
