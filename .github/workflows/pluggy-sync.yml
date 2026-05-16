@@ -1,3 +1,11 @@
+- name: Verificar secrets
+        run: |
+          echo "CLIENT_ID length: ${#PLUGGY_CLIENT_ID}"
+          echo "CLIENT_SECRET length: ${#PLUGGY_CLIENT_SECRET}"
+        env:
+          PLUGGY_CLIENT_ID: ${{ secrets.PLUGGY_CLIENT_ID }}
+          PLUGGY_CLIENT_SECRET: ${{ secrets.PLUGGY_CLIENT_SECRET }}
+          
 name: Pluggy Auto-Sync
 
 on:
