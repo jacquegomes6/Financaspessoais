@@ -13,18 +13,6 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-      - name: Verificar secrets
-        run: |
-          echo "PLUGGY_CLIENT_ID length: ${#PLUGGY_CLIENT_ID}"
-          echo "PLUGGY_CLIENT_SECRET length: ${#PLUGGY_CLIENT_SECRET}"
-          echo "SUPABASE_URL length: ${#SUPABASE_URL}"
-          echo "SUPABASE_SERVICE_KEY length: ${#SUPABASE_SERVICE_KEY}"
-        env:
-          PLUGGY_CLIENT_ID: ${{ secrets.PLUGGY_CLIENT_ID }}
-          PLUGGY_CLIENT_SECRET: ${{ secrets.PLUGGY_CLIENT_SECRET }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-
       - name: Sincronizar transacoes da Pluggy
         uses: actions/github-script@v7
         env:
@@ -39,6 +27,12 @@ jobs:
             const SUPABASE_URL = process.env.SUPABASE_URL;
             const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
             const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
+
+            // IDs dos seus items no MeuPluggy (Itau e Nubank)
+            const ITEM_IDS = [
+              '0b3be6b8-e0c6-45c2-bc1a-f241a7d84bbc',
+              '9457ca81-8695-43b2-a269-a3b8527b5103'
+            ];
 
             async function sbGet(path) {
               const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -86,13 +80,12 @@ jobs:
                 headers: { 'X-API-KEY': apiKey }
               });
               const data = await r.json();
-              if (!r.ok) throw new Error(`Pluggy GET ${path}: ${data.message || r.status}`);
+              if (!r.ok) throw new Error(`Pluggy GET ${path}: ${JSON.stringify(data)}`);
               return data;
             }
 
             // 1. Autenticar na Pluggy
             console.log('Autenticando na Pluggy...');
-            console.log('Client ID:', process.env.PLUGGY_CLIENT_ID?.substring(0, 8) + '...');
             const authRes = await fetch(`${PLUGGY_API}/auth`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -106,19 +99,22 @@ jobs:
             const apiKey = authData.apiKey;
             console.log('Autenticado com sucesso.');
 
-            // 2. Buscar items e contas
-            const itemsData = await pluggyGet('/items', apiKey);
-            const items = itemsData.results || [];
-            console.log(`Items encontrados: ${items.length}`);
-            if (!items.length) { console.log('Nenhuma conta conectada.'); return; }
-
+            // 2. Buscar contas de cada item diretamente pelo ID
             let allAccounts = [];
-            for (const item of items) {
-              const accs = await pluggyGet(`/accounts?itemId=${item.id}`, apiKey);
-              (accs.results || []).forEach(a => { a._institution = item.connector?.name || 'Banco'; });
-              allAccounts = allAccounts.concat(accs.results || []);
+            for (const itemId of ITEM_IDS) {
+              try {
+                console.log(`Buscando contas do item ${itemId}...`);
+                const accs = await pluggyGet(`/accounts?itemId=${itemId}`, apiKey);
+                const results = accs.results || [];
+                console.log(`  ${results.length} conta(s) encontrada(s)`);
+                results.forEach(a => { a._itemId = itemId; });
+                allAccounts = allAccounts.concat(results);
+              } catch (e) {
+                console.warn(`Erro ao buscar contas do item ${itemId}:`, e.message);
+              }
             }
-            console.log(`Contas encontradas: ${allAccounts.length}`);
+            console.log(`Total de contas: ${allAccounts.length}`);
+            if (!allAccounts.length) { console.log('Nenhuma conta encontrada.'); return; }
 
             // 3. Buscar transacoes dos ultimos 90 dias
             const dateFrom = new Date();
@@ -129,18 +125,23 @@ jobs:
             for (const acc of allAccounts) {
               let page = 1;
               while (true) {
-                const data = await pluggyGet(
-                  `/transactions?accountId=${acc.id}&from=${dateFromStr}&pageSize=100&page=${page}`,
-                  apiKey
-                );
-                const txs = data.results || [];
-                txs.forEach(t => { t._institution = acc._institution; });
-                allPluggyTxs = allPluggyTxs.concat(txs);
-                if (txs.length < 100 || page >= 5) break;
-                page++;
+                try {
+                  const data = await pluggyGet(
+                    `/transactions?accountId=${acc.id}&from=${dateFromStr}&pageSize=100&page=${page}`,
+                    apiKey
+                  );
+                  const txs = data.results || [];
+                  console.log(`  Conta ${acc.id}: ${txs.length} transacoes (pag ${page})`);
+                  allPluggyTxs = allPluggyTxs.concat(txs);
+                  if (txs.length < 100 || page >= 5) break;
+                  page++;
+                } catch (e) {
+                  console.warn(`Erro ao buscar transacoes da conta ${acc.id}:`, e.message);
+                  break;
+                }
               }
             }
-            console.log(`Transacoes encontradas na Pluggy: ${allPluggyTxs.length}`);
+            console.log(`Total de transacoes na Pluggy: ${allPluggyTxs.length}`);
 
             // 4. Buscar fingerprints ja existentes no Supabase
             const existing = await sbGet(
@@ -149,7 +150,7 @@ jobs:
             const existingFP = new Set(
               existing.map(t => `${t.data_transacao}|${Math.abs(parseFloat(t.valor)).toFixed(2)}|${t.tipo}`)
             );
-            console.log(`Transacoes ja no Supabase (periodo): ${existing.length}`);
+            console.log(`Transacoes ja no Supabase: ${existing.length}`);
 
             // 5. Filtrar novas
             const newTxs = allPluggyTxs
@@ -180,7 +181,7 @@ jobs:
             // 6. Categorizar com IA
             let toSave = newTxs;
             if (ANTHROPIC_KEY && newTxs.length > 0) {
-              console.log('Buscando categorias do Supabase...');
+              console.log('Buscando categorias...');
               const cats = await sbGet('categorias?select=*&ativo=eq.true');
               const padroes = await sbGet('padroes_categorizacao?select=*&limit=200');
               const historico = await sbGet(
@@ -208,7 +209,6 @@ jobs:
 
                 const BATCH = 60;
                 const resultMap = {};
-
                 for (let start = 0; start < newTxs.length; start += BATCH) {
                   const batch = newTxs.slice(start, start + BATCH);
                   const txList = batch.map((t, bi) => `${start + bi}: "${t.descricao}" (R$ ${t.valor})`).join('\n');
@@ -242,7 +242,7 @@ jobs:
                   const catValida = catId && cats.some(c => c.id === catId);
                   return { ...t, categoria_id: catValida ? catId : null, ia: !!catValida };
                 });
-                console.log(`Categorizacao concluida: ${toSave.filter(t => t.ia).length}/${toSave.length} categorizadas.`);
+                console.log(`Categorizacao: ${toSave.filter(t => t.ia).length}/${toSave.length} categorizadas.`);
               }
             }
 
