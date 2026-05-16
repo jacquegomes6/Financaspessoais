@@ -1,32 +1,32 @@
-- name: Verificar secrets
-        run: |
-          echo "CLIENT_ID length: ${#PLUGGY_CLIENT_ID}"
-          echo "CLIENT_SECRET length: ${#PLUGGY_CLIENT_SECRET}"
-        env:
-          PLUGGY_CLIENT_ID: ${{ secrets.PLUGGY_CLIENT_ID }}
-          PLUGGY_CLIENT_SECRET: ${{ secrets.PLUGGY_CLIENT_SECRET }}
-          
 name: Pluggy Auto-Sync
 
 on:
   schedule:
-    - cron: '*/10 * * * *'  # a cada 10 minutos
-  workflow_dispatch:          # permite rodar manualmente também
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 8
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
+      - name: Verificar secrets
+        run: |
+          echo "PLUGGY_CLIENT_ID length: ${#PLUGGY_CLIENT_ID}"
+          echo "PLUGGY_CLIENT_SECRET length: ${#PLUGGY_CLIENT_SECRET}"
+          echo "SUPABASE_URL length: ${#SUPABASE_URL}"
+          echo "SUPABASE_SERVICE_KEY length: ${#SUPABASE_SERVICE_KEY}"
+        env:
+          PLUGGY_CLIENT_ID: ${{ secrets.PLUGGY_CLIENT_ID }}
+          PLUGGY_CLIENT_SECRET: ${{ secrets.PLUGGY_CLIENT_SECRET }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
-      - name: Sincronizar transações da Pluggy
+      - name: Sincronizar transacoes da Pluggy
         uses: actions/github-script@v7
-
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -40,7 +40,6 @@ jobs:
             const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
             const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 
-            // ── helpers ──────────────────────────────────────────────
             async function sbGet(path) {
               const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
                 headers: {
@@ -91,8 +90,9 @@ jobs:
               return data;
             }
 
-            // ── 1. Autenticar na Pluggy ───────────────────────────────
+            // 1. Autenticar na Pluggy
             console.log('Autenticando na Pluggy...');
+            console.log('Client ID:', process.env.PLUGGY_CLIENT_ID?.substring(0, 8) + '...');
             const authRes = await fetch(`${PLUGGY_API}/auth`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -102,11 +102,11 @@ jobs:
               })
             });
             const authData = await authRes.json();
-            if (!authRes.ok) throw new Error(`Pluggy auth: ${authData.message}`);
+            if (!authRes.ok) throw new Error(`Pluggy auth falhou: ${JSON.stringify(authData)}`);
             const apiKey = authData.apiKey;
             console.log('Autenticado com sucesso.');
 
-            // ── 2. Buscar items e contas ──────────────────────────────
+            // 2. Buscar items e contas
             const itemsData = await pluggyGet('/items', apiKey);
             const items = itemsData.results || [];
             console.log(`Items encontrados: ${items.length}`);
@@ -115,14 +115,12 @@ jobs:
             let allAccounts = [];
             for (const item of items) {
               const accs = await pluggyGet(`/accounts?itemId=${item.id}`, apiKey);
-              (accs.results || []).forEach(a => {
-                a._institution = item.connector?.name || 'Banco';
-              });
+              (accs.results || []).forEach(a => { a._institution = item.connector?.name || 'Banco'; });
               allAccounts = allAccounts.concat(accs.results || []);
             }
             console.log(`Contas encontradas: ${allAccounts.length}`);
 
-            // ── 3. Buscar transações (últimos 90 dias) ────────────────
+            // 3. Buscar transacoes dos ultimos 90 dias
             const dateFrom = new Date();
             dateFrom.setDate(dateFrom.getDate() - 90);
             const dateFromStr = dateFrom.toISOString().split('T')[0];
@@ -142,18 +140,18 @@ jobs:
                 page++;
               }
             }
-            console.log(`Transações encontradas na Pluggy: ${allPluggyTxs.length}`);
+            console.log(`Transacoes encontradas na Pluggy: ${allPluggyTxs.length}`);
 
-            // ── 4. Buscar fingerprints já existentes no Supabase ──────
+            // 4. Buscar fingerprints ja existentes no Supabase
             const existing = await sbGet(
               `transacoes?select=data_transacao,valor,tipo&confirmado=eq.true&data_transacao=gte.${dateFromStr}`
             );
             const existingFP = new Set(
               existing.map(t => `${t.data_transacao}|${Math.abs(parseFloat(t.valor)).toFixed(2)}|${t.tipo}`)
             );
-            console.log(`Transações já no Supabase (período): ${existing.length}`);
+            console.log(`Transacoes ja no Supabase (periodo): ${existing.length}`);
 
-            // ── 5. Filtrar novas ──────────────────────────────────────
+            // 5. Filtrar novas
             const newTxs = allPluggyTxs
               .map(t => {
                 const date  = (t.date || '').split('T')[0];
@@ -164,7 +162,7 @@ jobs:
                 return {
                   data_transacao: date,
                   data_pagamento: date,
-                  descricao: (t.description || t.descriptionRaw || 'Transação').trim(),
+                  descricao: (t.description || t.descriptionRaw || 'Transacao').trim(),
                   valor,
                   tipo,
                   categoria_id: null,
@@ -173,13 +171,13 @@ jobs:
               })
               .filter(Boolean);
 
-            console.log(`Novas transações: ${newTxs.length}`);
+            console.log(`Novas transacoes: ${newTxs.length}`);
             if (!newTxs.length) {
-              console.log('Nenhuma transação nova. Sync concluído.');
+              console.log('Nenhuma transacao nova. Sync concluido.');
               return;
             }
 
-            // ── 6. Categorizar com IA ────────────────────────────────
+            // 6. Categorizar com IA
             let toSave = newTxs;
             if (ANTHROPIC_KEY && newTxs.length > 0) {
               console.log('Buscando categorias do Supabase...');
@@ -204,9 +202,9 @@ jobs:
                   if (!exemploMap[key]) exemploMap[key] = { descricao: p.texto_padrao, categoria_id: p.categoria_id };
                 });
                 const exemplos = Object.values(exemploMap).slice(0, 120);
-                const exemplosList = exemplos.map(e => `"${e.descricao}" → ${catMap[e.categoria_id] || e.categoria_id}`).join('\n');
+                const exemplosList = exemplos.map(e => `"${e.descricao}" -> ${catMap[e.categoria_id] || e.categoria_id}`).join('\n');
 
-                const systemPrompt = `Classifique transações bancárias brasileiras nas categorias abaixo. Priorize o histórico do usuário. Responda SOMENTE JSON, sem texto extra.\n\nCATEGORIAS:\n${catList}\n\nHISTÓRICO:\n${exemplosList || '(sem histórico)'}\n\nFORMATO: [{"index":0,"categoria_id":"uuid"},...]`;
+                const systemPrompt = `Classifique transacoes bancarias brasileiras nas categorias abaixo. Priorize o historico do usuario. Responda SOMENTE JSON, sem texto extra.\n\nCATEGORIAS:\n${catList}\n\nHISTORICO:\n${exemplosList || '(sem historico)'}\n\nFORMATO: [{"index":0,"categoria_id":"uuid"},...]`;
 
                 const BATCH = 60;
                 const resultMap = {};
@@ -225,7 +223,7 @@ jobs:
                       body: JSON.stringify({
                         model: 'claude-sonnet-4-20250514',
                         max_tokens: 4000,
-                        messages: [{ role: 'user', content: systemPrompt + '\n\nTransações:\n' + txList }]
+                        messages: [{ role: 'user', content: systemPrompt + '\n\nTransacoes:\n' + txList }]
                       })
                     });
                     const aiData = await aiRes.json();
@@ -235,7 +233,7 @@ jobs:
                     result.forEach(r => { resultMap[r.index] = (r.categoria_id || '').trim(); });
                     console.log(`Lote ${Math.floor(start/BATCH)+1} categorizado.`);
                   } catch (e) {
-                    console.warn(`Erro ao categorizar lote ${Math.floor(start/BATCH)+1}:`, e.message);
+                    console.warn(`Erro ao categorizar lote:`, e.message);
                   }
                 }
 
@@ -244,11 +242,11 @@ jobs:
                   const catValida = catId && cats.some(c => c.id === catId);
                   return { ...t, categoria_id: catValida ? catId : null, ia: !!catValida };
                 });
-                console.log(`Categorização concluída. ${toSave.filter(t => t.ia).length} de ${toSave.length} categorizadas.`);
+                console.log(`Categorizacao concluida: ${toSave.filter(t => t.ia).length}/${toSave.length} categorizadas.`);
               }
             }
 
-            // ── 7. Criar registro de importação ───────────────────────
+            // 7. Criar registro de importacao
             const now = new Date();
             const impResult = await sbPostReturn('importacoes', {
               nome_arquivo: `Pluggy Auto-Sync ${now.toISOString()}`,
@@ -259,7 +257,7 @@ jobs:
             });
             const impId = impResult?.[0]?.id || null;
 
-            // ── 8. Salvar transações ──────────────────────────────────
+            // 8. Salvar transacoes
             const rows = toSave.map(t => ({
               categoria_id: t.categoria_id || null,
               data_transacao: t.data_transacao,
@@ -274,15 +272,15 @@ jobs:
             }));
 
             await sbPost('transacoes', rows);
-            console.log(`✅ ${rows.length} transações salvas no Supabase.`);
+            console.log(`${rows.length} transacoes salvas no Supabase.`);
 
-            // ── 9. Aprender padrões ───────────────────────────────────
+            // 9. Aprender padroes
             const padroesSalvar = rows
               .filter(t => t.categoria_id)
               .map(t => ({ texto_padrao: t.descricao.substring(0, 80), categoria_id: t.categoria_id }));
 
             if (padroesSalvar.length) {
-              const upsertRes = await fetch(`${SUPABASE_URL}/rest/v1/padroes_categorizacao`, {
+              await fetch(`${SUPABASE_URL}/rest/v1/padroes_categorizacao`, {
                 method: 'POST',
                 headers: {
                   'apikey': SUPABASE_KEY,
@@ -292,7 +290,7 @@ jobs:
                 },
                 body: JSON.stringify(padroesSalvar)
               });
-              console.log(`Padrões atualizados: ${padroesSalvar.length}`);
+              console.log(`Padroes atualizados: ${padroesSalvar.length}`);
             }
 
-            console.log('🎉 Sync concluído com sucesso!');
+            console.log('Sync concluido com sucesso!');
