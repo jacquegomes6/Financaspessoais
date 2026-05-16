@@ -191,15 +191,11 @@ body { font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,s
 .info-box { background:rgba(90,200,250,0.08); border:1px solid rgba(90,200,250,0.25); border-radius:var(--radius-sm); padding:14px 16px; font-size:13px; color:var(--text2); line-height:1.5; }
 .info-box strong { color:var(--text); }
 
-/* PLUGGY ACCOUNTS */
-.pluggy-account { background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:14px 16px; display:flex; align-items:center; gap:12px; margin-bottom:8px; }
-.pluggy-account-icon { width:36px; height:36px; border-radius:10px; background:rgba(0,122,255,0.1); display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; }
-.pluggy-account-info { flex:1; }
-.pluggy-account-name { font-size:14px; font-weight:500; }
-.pluggy-account-detail { font-size:12px; color:var(--text3); margin-top:2px; }
-.pluggy-sync-btn { background:rgba(52,199,89,0.1); color:var(--green); border:none; border-radius:8px; padding:6px 12px; font-size:12px; font-weight:600; cursor:pointer; font-family:inherit; transition:background 0.15s; }
-.pluggy-sync-btn:hover { background:rgba(52,199,89,0.2); }
-.pluggy-sync-btn:disabled { opacity:0.5; cursor:not-allowed; }
+/* IMPORT BANNER */
+.import-banner { display:flex; align-items:center; gap:14px; padding:14px 20px; border-radius:var(--radius); border:1px solid var(--border); background:var(--card); box-shadow:var(--shadow); }
+.import-banner.ok { border-color:rgba(52,199,89,0.3); background:rgba(52,199,89,0.04); }
+.import-banner.warn { border-color:rgba(255,149,0,0.3); background:rgba(255,149,0,0.04); }
+.import-banner.alert { border-color:rgba(255,59,48,0.3); background:rgba(255,59,48,0.04); }
 
 /* TOAST */
 .toast { position:fixed; bottom:32px; right:32px; background:var(--sidebar); color:white; padding:14px 20px; border-radius:12px; font-size:14px; font-weight:500; z-index:999; transform:translateY(100px); opacity:0; transition:all 0.3s; box-shadow:0 8px 32px rgba(0,0,0,0.3); }
@@ -301,8 +297,6 @@ input[type="file"] { display:none; }
       <div class="nav-icon" style="background:rgba(175,82,222,0.12)">🏷️</div>Categorias
     </div>
 
-    <div class="nav-section">Integração</div>
-
     <div class="nav-item" onclick="nav('settings')">
       <div class="nav-icon" style="background:rgba(142,142,147,0.15)">⚙️</div>Configurações
     </div>
@@ -331,6 +325,8 @@ input[type="file"] { display:none; }
       <button class="btn btn-primary btn-sm" onclick="nav('upload')">⬆ Importar</button>
     </div>
   </div>
+  <!-- BANNER ÚLTIMA IMPORTAÇÃO -->
+  <div id="importBanner" style="display:none"></div>
   <div class="cards-grid" id="dashCards">
     <div class="loading"><div class="spinner"></div> Carregando dados...</div>
   </div>
@@ -519,38 +515,6 @@ input[type="file"] { display:none; }
             <div style="flex:1"><div class="settings-label">Claude AI</div><div class="settings-sub">Categorização inteligente</div></div>
             <button class="btn btn-ghost btn-sm" onclick="updateAnthropicKey()" style="margin-right:8px">Atualizar chave</button>
             <span class="chip" id="aiChip">Verificando</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- PLUGGY INTEGRATION -->
-      <div>
-        <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Pluggy — Sincronização Bancária</div>
-        <div class="settings-section">
-          <div class="settings-item" style="flex-wrap:wrap;gap:16px">
-            <div class="settings-icon" style="background:rgba(255,149,0,0.1)">🏦</div>
-            <div style="flex:1;min-width:200px">
-              <div class="settings-label">Pluggy — Sync Automático</div>
-              <div class="settings-sub" id="pluggyStatusSub">Sincroniza automaticamente a cada 10 minutos</div>
-            </div>
-            <span class="chip" id="pluggyChip" style="flex-shrink:0">Não configurado</span>
-          </div>
-          <div style="padding:0 20px 16px;display:flex;flex-direction:column;gap:10px">
-            <div>
-              <label class="form-label" style="margin-bottom:4px">Client ID</label>
-              <input class="form-input" id="pluggyClientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" style="margin-bottom:0;font-size:13px">
-            </div>
-            <div>
-              <label class="form-label" style="margin-bottom:4px">Client Secret</label>
-              <input class="form-input" id="pluggyClientSecret" type="password" placeholder="••••••••••••••••••••••••••••••••••••" autocomplete="off" style="margin-bottom:0;font-size:13px">
-            </div>
-            <div style="display:flex;gap:8px;margin-top:4px">
-              <button class="btn btn-ghost btn-sm" onclick="savePluggyCredentials()">💾 Salvar e ativar</button>
-              <button class="btn btn-danger btn-sm" onclick="clearPluggyCredentials()" id="pluggyClearBtn" style="display:none">✕ Desativar</button>
-            </div>
-            <div class="info-box" style="font-size:12px;margin-top:4px">
-              <strong>Onde encontrar:</strong> Acesse <strong>dashboard.pluggy.ai</strong> → <strong>Applications</strong> → abra sua aplicação. Após salvar, a sincronização começa automaticamente.
-            </div>
           </div>
         </div>
       </div>
@@ -821,7 +785,7 @@ async function bootApp() {
   await loadDashboard();
   await loadImportHistory();
   checkAiKey();
-  initPluggySettings();
+  await updateImportBanner();
 }
 
 function populateMonthSelectors() {
@@ -863,287 +827,74 @@ function checkAiKey() {
 }
 
 // =============================================
-// PLUGGY INTEGRATION — AUTO SYNC
+// BANNER DE ÚLTIMA IMPORTAÇÃO
 // =============================================
-const PLUGGY_API = 'https://api.pluggy.ai';
-const PLUGGY_INTERVAL_MS = 10 * 60 * 1000; // 10 minutos
-let pluggyApiKey = null;
-let pluggyApiKeyExpiresAt = 0;
-let pluggySyncTimer = null;
-let pluggyIsSyncing = false;
 
-function initPluggySettings() {
-  const clientId = STORE.get('pluggyClientId');
-  const clientSecret = STORE.get('pluggyClientSecret');
-  if(clientId) document.getElementById('pluggyClientId').value = clientId;
-  if(clientSecret) document.getElementById('pluggyClientSecret').value = clientSecret;
-  updatePluggyStatus();
-  if(clientId && clientSecret) {
-    document.getElementById('pluggyClearBtn').style.display = 'inline-flex';
-    startPluggyAutoSync();
+async function updateImportBanner() {
+  const banner = document.getElementById('importBanner');
+  if(!banner) return;
+
+  const {data: imps} = await sbClient.from('importacoes')
+    .select('criado_em, total_transacoes, nome_arquivo')
+    .order('criado_em', {ascending: false})
+    .limit(1);
+
+  if(!imps || !imps.length) {
+    banner.style.display = 'flex';
+    banner.className = 'import-banner alert';
+    banner.innerHTML = `
+      <div style="font-size:24px">📂</div>
+      <div style="flex:1">
+        <div style="font-size:14px;font-weight:600;color:var(--red)">Nenhuma importação encontrada</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px">Importe seu primeiro extrato para começar</div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="nav('upload')">⬆ Importar agora</button>`;
+    return;
   }
-}
 
-function updatePluggyStatus(text, cls) {
-  const chip = document.getElementById('pluggyChip');
-  const sub  = document.getElementById('pluggyStatusSub');
-  const hasKey = !!STORE.get('pluggyClientId');
-  chip.textContent = text || (hasKey ? 'Ativo' : 'Não configurado');
-  chip.className   = 'chip ' + (cls || (hasKey ? 'green' : 'orange'));
-  if(sub && !text) sub.textContent = hasKey
-    ? 'Sincroniza automaticamente a cada 10 minutos'
-    : 'Cole suas credenciais abaixo para ativar';
-}
+  const lastImport = new Date(imps[0].criado_em);
+  const now = new Date();
+  const diffMs = now - lastImport;
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffHours / 24);
 
-function savePluggyCredentials() {
-  const clientId     = document.getElementById('pluggyClientId').value.trim();
-  const clientSecret = document.getElementById('pluggyClientSecret').value.trim();
-  if(!clientId || !clientSecret) { toast('Preencha Client ID e Client Secret','error'); return; }
-  STORE.set('pluggyClientId', clientId);
-  STORE.set('pluggyClientSecret', clientSecret);
-  pluggyApiKey = null; // força nova autenticação
-  pluggyApiKeyExpiresAt = 0;
-  document.getElementById('pluggyClearBtn').style.display = 'inline-flex';
-  updatePluggyStatus();
-  toast('Pluggy configurada! Iniciando primeira sincronização...','success');
-  startPluggyAutoSync(true); // roda imediatamente
-}
+  let timeStr, cls, icon, msg;
 
-function clearPluggyCredentials() {
-  if(!confirm('Desativar sincronização automática com a Pluggy?')) return;
-  stopPluggyAutoSync();
-  STORE.del('pluggyClientId');
-  STORE.del('pluggyClientSecret');
-  document.getElementById('pluggyClientId').value = '';
-  document.getElementById('pluggyClientSecret').value = '';
-  document.getElementById('pluggyClearBtn').style.display = 'none';
-  pluggyApiKey = null;
-  pluggyApiKeyExpiresAt = 0;
-  updatePluggyStatus();
-  toast('Sincronização com Pluggy desativada','info');
-}
-
-function startPluggyAutoSync(runNow = false) {
-  stopPluggyAutoSync(); // limpa timer anterior
-  if(runNow) {
-    pluggyAutoSync();
+  if(diffHours < 1) {
+    timeStr = 'há menos de 1 hora';
+    cls = 'ok'; icon = '✅';
+    msg = 'Dados atualizados!';
+  } else if(diffHours < 24) {
+    timeStr = `há ${diffHours}h`;
+    cls = 'ok'; icon = '✅';
+    msg = 'Dados de hoje';
+  } else if(diffDays === 1) {
+    timeStr = 'ontem';
+    cls = 'warn'; icon = '⚠️';
+    msg = 'Importe o extrato de hoje';
+  } else if(diffDays <= 3) {
+    timeStr = `há ${diffDays} dias`;
+    cls = 'warn'; icon = '⚠️';
+    msg = 'Extrato desatualizado';
+  } else {
+    timeStr = `há ${diffDays} dias`;
+    cls = 'alert'; icon = '🔴';
+    msg = 'Extrato muito desatualizado!';
   }
-  pluggySyncTimer = setInterval(pluggyAutoSync, PLUGGY_INTERVAL_MS);
-  console.log('[Pluggy] Auto-sync iniciado (intervalo: 10min)');
-}
 
-function stopPluggyAutoSync() {
-  if(pluggySyncTimer) {
-    clearInterval(pluggySyncTimer);
-    pluggySyncTimer = null;
-  }
-}
+  const lastDate = lastImport.toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
 
-async function pluggyGetApiKey() {
-  // Reutiliza token se ainda válido (margem de 5 min)
-  if(pluggyApiKey && Date.now() < pluggyApiKeyExpiresAt - 5 * 60 * 1000) {
-    return pluggyApiKey;
-  }
-  const clientId     = STORE.get('pluggyClientId');
-  const clientSecret = STORE.get('pluggyClientSecret');
-  if(!clientId || !clientSecret) return null;
-  try {
-    const res = await fetch(`${PLUGGY_API}/auth`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientId, clientSecret })
-    });
-    const data = await res.json();
-    if(!res.ok) throw new Error(data.message || 'Erro de autenticação');
-    pluggyApiKey = data.apiKey;
-    pluggyApiKeyExpiresAt = Date.now() + 2 * 60 * 60 * 1000; // 2h
-    return pluggyApiKey;
-  } catch(err) {
-    console.error('[Pluggy] Erro de autenticação:', err.message);
-    return null;
-  }
-}
-
-async function pluggyGet(path, apiKey) {
-  const res = await fetch(`${PLUGGY_API}${path}`, {
-    headers: { 'X-API-KEY': apiKey }
-  });
-  const data = await res.json();
-  if(!res.ok) throw new Error(data.message || `Erro ${res.status}`);
-  return data;
-}
-
-async function pluggyAutoSync() {
-  if(pluggyIsSyncing) return; // evita execuções paralelas
-  if(!STORE.get('pluggyClientId')) return;
-
-  pluggyIsSyncing = true;
-  updatePluggyStatus('Sincronizando...', 'blue');
-  console.log('[Pluggy] Iniciando sync:', new Date().toLocaleTimeString());
-
-  try {
-    const apiKey = await pluggyGetApiKey();
-    if(!apiKey) {
-      updatePluggyStatus('Erro de autenticação', 'red');
-      pluggyIsSyncing = false;
-      return;
-    }
-
-    // 1. Busca todos os items (conexões bancárias)
-    const itemsData = await pluggyGet('/items', apiKey);
-    const items = itemsData.results || [];
-    if(!items.length) {
-      updatePluggyStatus('Sem contas conectadas', 'orange');
-      pluggyIsSyncing = false;
-      return;
-    }
-
-    // 2. Coleta todas as contas de todos os items
-    let allAccounts = [];
-    for(const item of items) {
-      try {
-        const accs = await pluggyGet(`/accounts?itemId=${item.id}`, apiKey);
-        (accs.results || []).forEach(a => {
-          a._institution = item.connector?.name || 'Banco';
-        });
-        allAccounts = allAccounts.concat(accs.results || []);
-      } catch(e) {
-        console.warn('[Pluggy] Erro ao buscar contas do item', item.id, e.message);
-      }
-    }
-
-    // 3. Busca transações dos últimos 90 dias de cada conta
-    const dateFrom = new Date();
-    dateFrom.setDate(dateFrom.getDate() - 90);
-    const dateFromStr = dateFrom.toISOString().split('T')[0];
-
-    let allPluggyTxs = [];
-    for(const acc of allAccounts) {
-      try {
-        let page = 1;
-        while(true) {
-          const data = await pluggyGet(
-            `/transactions?accountId=${acc.id}&from=${dateFromStr}&pageSize=100&page=${page}`,
-            apiKey
-          );
-          const txs = data.results || [];
-          txs.forEach(t => { t._institution = acc._institution; });
-          allPluggyTxs = allPluggyTxs.concat(txs);
-          if(txs.length < 100 || page >= 5) break;
-          page++;
-        }
-      } catch(e) {
-        console.warn('[Pluggy] Erro ao buscar transações da conta', acc.id, e.message);
-      }
-    }
-
-    if(!allPluggyTxs.length) {
-      updatePluggyStatus('Ativo · sem novas transações', 'green');
-      pluggyIsSyncing = false;
-      return;
-    }
-
-    // 4. Busca fingerprints das transações já salvas no Supabase
-    const {data: existingTxs} = await sbClient.from('transacoes')
-      .select('data_transacao,valor,tipo')
-      .eq('confirmado', true)
-      .gte('data_transacao', dateFromStr);
-
-    const existingFP = new Set(
-      (existingTxs || []).map(t =>
-        `${t.data_transacao}|${Math.abs(parseFloat(t.valor)).toFixed(2)}|${t.tipo}`
-      )
-    );
-
-    // 5. Converte e filtra duplicatas
-    const newTxs = allPluggyTxs
-      .map(t => {
-        const date  = (t.date || '').split('T')[0];
-        const valor = Math.abs(parseFloat(t.amount || 0));
-        const tipo  = (t.type || '').toUpperCase() === 'CREDIT' ? 'credito' : 'debito';
-        const fp    = `${date}|${valor.toFixed(2)}|${tipo}`;
-        if(existingFP.has(fp) || !date || !valor) return null;
-        return {
-          data_transacao: date,
-          data_pagamento: date,
-          descricao: (t.description || t.descriptionRaw || 'Transação').trim(),
-          valor,
-          tipo,
-          categoria_id: null,
-          ia: false
-        };
-      })
-      .filter(Boolean);
-
-    if(!newTxs.length) {
-      const lastSync = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
-      updatePluggyStatus(`Ativo · sync ${lastSync}`, 'green');
-      pluggyIsSyncing = false;
-      return;
-    }
-
-    // 6. Categoriza com IA
-    let toSave = newTxs;
-    if(STORE.get('anthropicKey') && CATS.length) {
-      console.log(`[Pluggy] Categorizando ${newTxs.length} transações com IA...`);
-      toSave = await categorizarComIA(newTxs);
-    }
-
-    // 7. Cria registro de importação
-    const now = new Date();
-    const {data: imp} = await sbClient.from('importacoes').insert({
-      nome_arquivo: `Pluggy Auto-Sync ${now.toLocaleString('pt-BR')}`,
-      tipo_arquivo: 'pluggy',
-      status: 'concluido',
-      total_transacoes: toSave.length,
-      criado_em: now.toISOString()
-    }).select().single();
-
-    // 8. Salva transações no Supabase
-    const rows = toSave.map(t => ({
-      categoria_id: t.categoria_id || null,
-      data_transacao: t.data_transacao,
-      data_pagamento: t.data_pagamento || t.data_transacao,
-      descricao: t.descricao,
-      valor: t.valor,
-      tipo: t.tipo,
-      comentario: null,
-      categorizado_por_ia: t.ia || false,
-      confirmado: true,
-      importacao_id: imp?.id || null
-    }));
-
-    const {error} = await sbClient.from('transacoes').insert(rows);
-    if(error) {
-      console.error('[Pluggy] Erro ao salvar transações:', error.message);
-      updatePluggyStatus('Erro ao salvar', 'red');
-      pluggyIsSyncing = false;
-      return;
-    }
-
-    // 9. Aprende padrões
-    const padroes = rows.filter(t => t.categoria_id).map(t => ({
-      texto_padrao: t.descricao.substring(0, 80),
-      categoria_id: t.categoria_id
-    }));
-    for(const p of padroes) {
-      await sbClient.from('padroes_categorizacao')
-        .upsert(p, {onConflict:'texto_padrao,categoria_id', ignoreDuplicates:false});
-    }
-
-    // 10. Atualiza dashboard silenciosamente
-    const lastSync = now.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
-    updatePluggyStatus(`Ativo · sync ${lastSync}`, 'green');
-    await loadDashboard();
-    await loadImportHistory();
-    console.log(`[Pluggy] Sync concluído: ${toSave.length} novas transações`);
-
-  } catch(err) {
-    console.error('[Pluggy] Erro no auto-sync:', err.message);
-    updatePluggyStatus('Erro na sincronização', 'red');
-  } finally {
-    pluggyIsSyncing = false;
-  }
+  banner.style.display = 'flex';
+  banner.className = `import-banner ${cls}`;
+  banner.innerHTML = `
+    <div style="font-size:20px">${icon}</div>
+    <div style="flex:1">
+      <div style="font-size:14px;font-weight:600">${msg}</div>
+      <div style="font-size:12px;color:var(--text3);margin-top:2px">
+        Última importação ${timeStr} · ${lastDate} · ${imps[0].total_transacoes} transações
+      </div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="nav('upload')">⬆ Importar</button>`;
 }
 
 // =============================================
@@ -2312,6 +2063,7 @@ async function confirmImport() {
   document.getElementById('uploadBadge').style.display='none';
   await loadImportHistory();
   await loadDashboard();
+  await updateImportBanner();
   btn.textContent='✓ Confirmar Importação'; btn.disabled=false;
 }
 
