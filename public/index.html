@@ -191,6 +191,16 @@ body { font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,s
 .info-box { background:rgba(90,200,250,0.08); border:1px solid rgba(90,200,250,0.25); border-radius:var(--radius-sm); padding:14px 16px; font-size:13px; color:var(--text2); line-height:1.5; }
 .info-box strong { color:var(--text); }
 
+/* PLUGGY ACCOUNTS */
+.pluggy-account { background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:14px 16px; display:flex; align-items:center; gap:12px; margin-bottom:8px; }
+.pluggy-account-icon { width:36px; height:36px; border-radius:10px; background:rgba(0,122,255,0.1); display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; }
+.pluggy-account-info { flex:1; }
+.pluggy-account-name { font-size:14px; font-weight:500; }
+.pluggy-account-detail { font-size:12px; color:var(--text3); margin-top:2px; }
+.pluggy-sync-btn { background:rgba(52,199,89,0.1); color:var(--green); border:none; border-radius:8px; padding:6px 12px; font-size:12px; font-weight:600; cursor:pointer; font-family:inherit; transition:background 0.15s; }
+.pluggy-sync-btn:hover { background:rgba(52,199,89,0.2); }
+.pluggy-sync-btn:disabled { opacity:0.5; cursor:not-allowed; }
+
 /* TOAST */
 .toast { position:fixed; bottom:32px; right:32px; background:var(--sidebar); color:white; padding:14px 20px; border-radius:12px; font-size:14px; font-weight:500; z-index:999; transform:translateY(100px); opacity:0; transition:all 0.3s; box-shadow:0 8px 32px rgba(0,0,0,0.3); }
 .toast.show { transform:translateY(0); opacity:1; }
@@ -510,9 +520,41 @@ input[type="file"] { display:none; }
             <button class="btn btn-ghost btn-sm" onclick="updateAnthropicKey()" style="margin-right:8px">Atualizar chave</button>
             <span class="chip" id="aiChip">Verificando</span>
           </div>
-
         </div>
       </div>
+
+      <!-- PLUGGY INTEGRATION -->
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Pluggy — Sincronização Bancária</div>
+        <div class="settings-section">
+          <div class="settings-item" style="flex-wrap:wrap;gap:16px">
+            <div class="settings-icon" style="background:rgba(255,149,0,0.1)">🏦</div>
+            <div style="flex:1;min-width:200px">
+              <div class="settings-label">Pluggy — Sync Automático</div>
+              <div class="settings-sub" id="pluggyStatusSub">Sincroniza automaticamente a cada 10 minutos</div>
+            </div>
+            <span class="chip" id="pluggyChip" style="flex-shrink:0">Não configurado</span>
+          </div>
+          <div style="padding:0 20px 16px;display:flex;flex-direction:column;gap:10px">
+            <div>
+              <label class="form-label" style="margin-bottom:4px">Client ID</label>
+              <input class="form-input" id="pluggyClientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" style="margin-bottom:0;font-size:13px">
+            </div>
+            <div>
+              <label class="form-label" style="margin-bottom:4px">Client Secret</label>
+              <input class="form-input" id="pluggyClientSecret" type="password" placeholder="••••••••••••••••••••••••••••••••••••" autocomplete="off" style="margin-bottom:0;font-size:13px">
+            </div>
+            <div style="display:flex;gap:8px;margin-top:4px">
+              <button class="btn btn-ghost btn-sm" onclick="savePluggyCredentials()">💾 Salvar e ativar</button>
+              <button class="btn btn-danger btn-sm" onclick="clearPluggyCredentials()" id="pluggyClearBtn" style="display:none">✕ Desativar</button>
+            </div>
+            <div class="info-box" style="font-size:12px;margin-top:4px">
+              <strong>Onde encontrar:</strong> Acesse <strong>dashboard.pluggy.ai</strong> → <strong>Applications</strong> → abra sua aplicação. Após salvar, a sincronização começa automaticamente.
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div>
         <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">IA & Aprendizado</div>
         <div class="settings-section">
@@ -710,6 +752,8 @@ input[type="file"] { display:none; }
   </div>
 </div>
 
+
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -729,6 +773,8 @@ let pendingTx = [];
 let currentImportId = null;
 let selectedMonth = new Date().getMonth() + 1;
 let selectedYear = new Date().getFullYear();
+
+
 
 function initSupabase() {
   const url = STORE.get('sbUrl');
@@ -775,6 +821,7 @@ async function bootApp() {
   await loadDashboard();
   await loadImportHistory();
   checkAiKey();
+  initPluggySettings();
 }
 
 function populateMonthSelectors() {
@@ -799,25 +846,304 @@ function changeMonth() {
   const [m,y] = val.split('-');
   selectedMonth = parseInt(m);
   selectedYear = parseInt(y);
-  // sync obj selector
-
   loadDashboard();
 }
-
-
 
 function updateGreeting() {
   const h = new Date().getHours();
   document.getElementById('dashGreeting').textContent = `${h<12?'Bom dia':h<18?'Boa tarde':'Boa noite'}! 👋`;
   const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   document.getElementById('dashPeriod').textContent = `${months[selectedMonth-1]} ${selectedYear} · Resumo financeiro`;
-
 }
 
 function checkAiKey() {
   const has = !!STORE.get('anthropicKey');
   document.getElementById('aiChip').textContent = has ? 'Ativa' : 'Sem chave';
   document.getElementById('aiChip').className = 'chip ' + (has ? 'green' : 'orange');
+}
+
+// =============================================
+// PLUGGY INTEGRATION — AUTO SYNC
+// =============================================
+const PLUGGY_API = 'https://api.pluggy.ai';
+const PLUGGY_INTERVAL_MS = 10 * 60 * 1000; // 10 minutos
+let pluggyApiKey = null;
+let pluggyApiKeyExpiresAt = 0;
+let pluggySyncTimer = null;
+let pluggyIsSyncing = false;
+
+function initPluggySettings() {
+  const clientId = STORE.get('pluggyClientId');
+  const clientSecret = STORE.get('pluggyClientSecret');
+  if(clientId) document.getElementById('pluggyClientId').value = clientId;
+  if(clientSecret) document.getElementById('pluggyClientSecret').value = clientSecret;
+  updatePluggyStatus();
+  if(clientId && clientSecret) {
+    document.getElementById('pluggyClearBtn').style.display = 'inline-flex';
+    startPluggyAutoSync();
+  }
+}
+
+function updatePluggyStatus(text, cls) {
+  const chip = document.getElementById('pluggyChip');
+  const sub  = document.getElementById('pluggyStatusSub');
+  const hasKey = !!STORE.get('pluggyClientId');
+  chip.textContent = text || (hasKey ? 'Ativo' : 'Não configurado');
+  chip.className   = 'chip ' + (cls || (hasKey ? 'green' : 'orange'));
+  if(sub && !text) sub.textContent = hasKey
+    ? 'Sincroniza automaticamente a cada 10 minutos'
+    : 'Cole suas credenciais abaixo para ativar';
+}
+
+function savePluggyCredentials() {
+  const clientId     = document.getElementById('pluggyClientId').value.trim();
+  const clientSecret = document.getElementById('pluggyClientSecret').value.trim();
+  if(!clientId || !clientSecret) { toast('Preencha Client ID e Client Secret','error'); return; }
+  STORE.set('pluggyClientId', clientId);
+  STORE.set('pluggyClientSecret', clientSecret);
+  pluggyApiKey = null; // força nova autenticação
+  pluggyApiKeyExpiresAt = 0;
+  document.getElementById('pluggyClearBtn').style.display = 'inline-flex';
+  updatePluggyStatus();
+  toast('Pluggy configurada! Iniciando primeira sincronização...','success');
+  startPluggyAutoSync(true); // roda imediatamente
+}
+
+function clearPluggyCredentials() {
+  if(!confirm('Desativar sincronização automática com a Pluggy?')) return;
+  stopPluggyAutoSync();
+  STORE.del('pluggyClientId');
+  STORE.del('pluggyClientSecret');
+  document.getElementById('pluggyClientId').value = '';
+  document.getElementById('pluggyClientSecret').value = '';
+  document.getElementById('pluggyClearBtn').style.display = 'none';
+  pluggyApiKey = null;
+  pluggyApiKeyExpiresAt = 0;
+  updatePluggyStatus();
+  toast('Sincronização com Pluggy desativada','info');
+}
+
+function startPluggyAutoSync(runNow = false) {
+  stopPluggyAutoSync(); // limpa timer anterior
+  if(runNow) {
+    pluggyAutoSync();
+  }
+  pluggySyncTimer = setInterval(pluggyAutoSync, PLUGGY_INTERVAL_MS);
+  console.log('[Pluggy] Auto-sync iniciado (intervalo: 10min)');
+}
+
+function stopPluggyAutoSync() {
+  if(pluggySyncTimer) {
+    clearInterval(pluggySyncTimer);
+    pluggySyncTimer = null;
+  }
+}
+
+async function pluggyGetApiKey() {
+  // Reutiliza token se ainda válido (margem de 5 min)
+  if(pluggyApiKey && Date.now() < pluggyApiKeyExpiresAt - 5 * 60 * 1000) {
+    return pluggyApiKey;
+  }
+  const clientId     = STORE.get('pluggyClientId');
+  const clientSecret = STORE.get('pluggyClientSecret');
+  if(!clientId || !clientSecret) return null;
+  try {
+    const res = await fetch(`${PLUGGY_API}/auth`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId, clientSecret })
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.message || 'Erro de autenticação');
+    pluggyApiKey = data.apiKey;
+    pluggyApiKeyExpiresAt = Date.now() + 2 * 60 * 60 * 1000; // 2h
+    return pluggyApiKey;
+  } catch(err) {
+    console.error('[Pluggy] Erro de autenticação:', err.message);
+    return null;
+  }
+}
+
+async function pluggyGet(path, apiKey) {
+  const res = await fetch(`${PLUGGY_API}${path}`, {
+    headers: { 'X-API-KEY': apiKey }
+  });
+  const data = await res.json();
+  if(!res.ok) throw new Error(data.message || `Erro ${res.status}`);
+  return data;
+}
+
+async function pluggyAutoSync() {
+  if(pluggyIsSyncing) return; // evita execuções paralelas
+  if(!STORE.get('pluggyClientId')) return;
+
+  pluggyIsSyncing = true;
+  updatePluggyStatus('Sincronizando...', 'blue');
+  console.log('[Pluggy] Iniciando sync:', new Date().toLocaleTimeString());
+
+  try {
+    const apiKey = await pluggyGetApiKey();
+    if(!apiKey) {
+      updatePluggyStatus('Erro de autenticação', 'red');
+      pluggyIsSyncing = false;
+      return;
+    }
+
+    // 1. Busca todos os items (conexões bancárias)
+    const itemsData = await pluggyGet('/items', apiKey);
+    const items = itemsData.results || [];
+    if(!items.length) {
+      updatePluggyStatus('Sem contas conectadas', 'orange');
+      pluggyIsSyncing = false;
+      return;
+    }
+
+    // 2. Coleta todas as contas de todos os items
+    let allAccounts = [];
+    for(const item of items) {
+      try {
+        const accs = await pluggyGet(`/accounts?itemId=${item.id}`, apiKey);
+        (accs.results || []).forEach(a => {
+          a._institution = item.connector?.name || 'Banco';
+        });
+        allAccounts = allAccounts.concat(accs.results || []);
+      } catch(e) {
+        console.warn('[Pluggy] Erro ao buscar contas do item', item.id, e.message);
+      }
+    }
+
+    // 3. Busca transações dos últimos 90 dias de cada conta
+    const dateFrom = new Date();
+    dateFrom.setDate(dateFrom.getDate() - 90);
+    const dateFromStr = dateFrom.toISOString().split('T')[0];
+
+    let allPluggyTxs = [];
+    for(const acc of allAccounts) {
+      try {
+        let page = 1;
+        while(true) {
+          const data = await pluggyGet(
+            `/transactions?accountId=${acc.id}&from=${dateFromStr}&pageSize=100&page=${page}`,
+            apiKey
+          );
+          const txs = data.results || [];
+          txs.forEach(t => { t._institution = acc._institution; });
+          allPluggyTxs = allPluggyTxs.concat(txs);
+          if(txs.length < 100 || page >= 5) break;
+          page++;
+        }
+      } catch(e) {
+        console.warn('[Pluggy] Erro ao buscar transações da conta', acc.id, e.message);
+      }
+    }
+
+    if(!allPluggyTxs.length) {
+      updatePluggyStatus('Ativo · sem novas transações', 'green');
+      pluggyIsSyncing = false;
+      return;
+    }
+
+    // 4. Busca fingerprints das transações já salvas no Supabase
+    const {data: existingTxs} = await sbClient.from('transacoes')
+      .select('data_transacao,valor,tipo')
+      .eq('confirmado', true)
+      .gte('data_transacao', dateFromStr);
+
+    const existingFP = new Set(
+      (existingTxs || []).map(t =>
+        `${t.data_transacao}|${Math.abs(parseFloat(t.valor)).toFixed(2)}|${t.tipo}`
+      )
+    );
+
+    // 5. Converte e filtra duplicatas
+    const newTxs = allPluggyTxs
+      .map(t => {
+        const date  = (t.date || '').split('T')[0];
+        const valor = Math.abs(parseFloat(t.amount || 0));
+        const tipo  = (t.type || '').toUpperCase() === 'CREDIT' ? 'credito' : 'debito';
+        const fp    = `${date}|${valor.toFixed(2)}|${tipo}`;
+        if(existingFP.has(fp) || !date || !valor) return null;
+        return {
+          data_transacao: date,
+          data_pagamento: date,
+          descricao: (t.description || t.descriptionRaw || 'Transação').trim(),
+          valor,
+          tipo,
+          categoria_id: null,
+          ia: false
+        };
+      })
+      .filter(Boolean);
+
+    if(!newTxs.length) {
+      const lastSync = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+      updatePluggyStatus(`Ativo · sync ${lastSync}`, 'green');
+      pluggyIsSyncing = false;
+      return;
+    }
+
+    // 6. Categoriza com IA
+    let toSave = newTxs;
+    if(STORE.get('anthropicKey') && CATS.length) {
+      console.log(`[Pluggy] Categorizando ${newTxs.length} transações com IA...`);
+      toSave = await categorizarComIA(newTxs);
+    }
+
+    // 7. Cria registro de importação
+    const now = new Date();
+    const {data: imp} = await sbClient.from('importacoes').insert({
+      nome_arquivo: `Pluggy Auto-Sync ${now.toLocaleString('pt-BR')}`,
+      tipo_arquivo: 'pluggy',
+      status: 'concluido',
+      total_transacoes: toSave.length,
+      criado_em: now.toISOString()
+    }).select().single();
+
+    // 8. Salva transações no Supabase
+    const rows = toSave.map(t => ({
+      categoria_id: t.categoria_id || null,
+      data_transacao: t.data_transacao,
+      data_pagamento: t.data_pagamento || t.data_transacao,
+      descricao: t.descricao,
+      valor: t.valor,
+      tipo: t.tipo,
+      comentario: null,
+      categorizado_por_ia: t.ia || false,
+      confirmado: true,
+      importacao_id: imp?.id || null
+    }));
+
+    const {error} = await sbClient.from('transacoes').insert(rows);
+    if(error) {
+      console.error('[Pluggy] Erro ao salvar transações:', error.message);
+      updatePluggyStatus('Erro ao salvar', 'red');
+      pluggyIsSyncing = false;
+      return;
+    }
+
+    // 9. Aprende padrões
+    const padroes = rows.filter(t => t.categoria_id).map(t => ({
+      texto_padrao: t.descricao.substring(0, 80),
+      categoria_id: t.categoria_id
+    }));
+    for(const p of padroes) {
+      await sbClient.from('padroes_categorizacao')
+        .upsert(p, {onConflict:'texto_padrao,categoria_id', ignoreDuplicates:false});
+    }
+
+    // 10. Atualiza dashboard silenciosamente
+    const lastSync = now.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+    updatePluggyStatus(`Ativo · sync ${lastSync}`, 'green');
+    await loadDashboard();
+    await loadImportHistory();
+    console.log(`[Pluggy] Sync concluído: ${toSave.length} novas transações`);
+
+  } catch(err) {
+    console.error('[Pluggy] Erro no auto-sync:', err.message);
+    updatePluggyStatus('Erro na sincronização', 'red');
+  } finally {
+    pluggyIsSyncing = false;
+  }
 }
 
 // =============================================
@@ -833,7 +1159,6 @@ function nav(name) {
   if(name==='transactions') loadAllTransactions();
   if(name==='categories') { loadCategoryBudgets().then(()=>renderCategories()); }
   if(name==='upload') loadImportHistory();
-
 }
 
 // =============================================
@@ -924,14 +1249,11 @@ async function createNewCategory() {
     nome: 'Nova Categoria', icone: '💳', cor: '#007AFF', tipo: 'variavel', natureza: 'despesa', orcamento_mensal: 0
   }).select().single();
   if(error) { toast('Erro: '+error.message,'error'); return; }
-  // Add to top of list
   CATS.unshift(data);
   populateCatFilters();
   renderCategories();
   refreshCatSelects();
-  // Scroll to top of list
   document.getElementById('catList').scrollIntoView({behavior:'smooth'});
-  // Focus first name field
   setTimeout(()=>{
     const first = document.querySelector('#catList .comment-field');
     if(first) { first.focus(); first.select(); }
@@ -949,47 +1271,9 @@ async function updateCatField(id, field, value) {
   if(cat) cat[field] = String(value).trim();
   if(field==='cor' || field==='icone') renderCategories();
   refreshCatSelects();
-  // Refresh objGrid in dashboard so new category appears
   await loadCategoryBudgets();
   loadObjectives();
   toast('Salvo!','success');
-}
-
-async function quickSetBudget(catId, catNome) {
-  const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-  const val = prompt(`Orçamento para "${catNome}" em ${months[selectedMonth-1]}/${selectedYear}:
-(deixe 0 para remover)`);
-  if(val === null) return;
-  const valor = parseFloat(val)||0;
-  const {error} = await sbClient.from('objetivos').upsert(
-    {categoria_id:catId, mes:selectedMonth, ano:selectedYear, valor_objetivo:valor},
-    {onConflict:'categoria_id,mes,ano'}
-  );
-  if(error) { toast('Erro ao salvar: '+error.message,'error'); return; }
-  toast(`Orçamento de ${fmt(valor)} definido para ${months[selectedMonth-1]}!`,'success');
-  await loadCategoryBudgets();
-  renderCategories();
-}
-
-function openCatModal(id) {
-  document.getElementById('catEditId').value = id||'';
-  if(id) {
-    const cat = catById(id);
-    document.getElementById('catModalTitle').textContent = 'Editar Categoria';
-    document.getElementById('catName').value = cat.nome;
-    document.getElementById('catIcon').value = cat.icone;
-    document.getElementById('catColor').value = cat.cor;
-    document.getElementById('catTipo').value = cat.tipo;
-
-  } else {
-    document.getElementById('catModalTitle').textContent = 'Nova Categoria';
-    document.getElementById('catName').value='';
-    document.getElementById('catIcon').value='💳';
-    document.getElementById('catColor').value='#007AFF';
-    document.getElementById('catTipo').value='variavel';
-    document.getElementById('catOrcamento').value='';
-  }
-  document.getElementById('catModal').classList.add('active');
 }
 
 async function saveCategory() {
@@ -1029,17 +1313,14 @@ async function loadDashboard(skipAllTx=false) {
   updateGreeting();
   populateMonthSelectors();
 
-  // Busca transações do mês
   const {data:txMes} = await sbClient.from('transacoes')
     .select('*').eq('confirmado',true)
     .gte('data_pagamento', `${ano}-${String(mes).padStart(2,'0')}-01`)
     .lt('data_pagamento', mes===12?`${ano+1}-01-01`:`${ano}-${String(mes+1).padStart(2,'0')}-01`);
 
-  // Categorias de receita e despesa
   const catReceita = new Set(CATS.filter(c=>c.natureza==='receita').map(c=>c.id));
   const catDespesa = new Set(CATS.filter(c=>!c.natureza||c.natureza==='despesa').map(c=>c.id));
 
-  // Agrupa saldo líquido por categoria (créditos - débitos)
   const catSaldoMap = {};
   (txMes||[]).forEach(t => {
     if(!t.categoria_id) return;
@@ -1047,14 +1328,11 @@ async function loadDashboard(skipAllTx=false) {
     catSaldoMap[t.categoria_id] = (catSaldoMap[t.categoria_id]||0) + val;
   });
 
-  // Receitas: soma saldo líquido das categorias de receita
-  // Despesas: soma valor absoluto do saldo líquido das categorias de despesa
   let receitas = 0, despesas = 0;
   catReceita.forEach(id => { receitas += catSaldoMap[id]||0; });
   catDespesa.forEach(id => { despesas += Math.abs(catSaldoMap[id]||0); });
   const saldo = receitas - despesas;
 
-  // Fetch objectives for donut/category list
   const {data: objsDonut} = await sbClient.from('objetivos').select('*').eq('mes',mes).eq('ano',ano);
   CATS.forEach(c=>{
     const o = (objsDonut||[]).find(o=>o.categoria_id===c.id);
@@ -1062,7 +1340,6 @@ async function loadDashboard(skipAllTx=false) {
   });
   buildDonut(catSaldoMap);
 
-  // Saldo final acumulado até o mês selecionado
   const mesEndAcum = mes===12?`${ano+1}-01-01`:`${ano}-${String(mes+1).padStart(2,'0')}-01`;
   const {data:txAcum} = await sbClient.from('transacoes').select('valor,tipo')
     .eq('confirmado',true).lt('data_pagamento', mesEndAcum);
@@ -1070,9 +1347,7 @@ async function loadDashboard(skipAllTx=false) {
     s + (t.tipo==='credito'?Math.abs(parseFloat(t.valor)):-Math.abs(parseFloat(t.valor))), 0);
   const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
-  // Metas do mês: soma objetivos por natureza
-  const {data: objsMes} = await sbClient.from('objetivos').select('*')
-    .eq('mes', mes).eq('ano', ano);
+  const {data: objsMes} = await sbClient.from('objetivos').select('*').eq('mes', mes).eq('ano', ano);
   let metaReceita = 0, metaDespesa = 0;
   (objsMes||[]).forEach(o => {
     const cat = CATS.find(c=>c.id===o.categoria_id);
@@ -1080,7 +1355,6 @@ async function loadDashboard(skipAllTx=false) {
     if(cat.natureza==='receita') metaReceita += parseFloat(o.valor_objetivo||0);
     else metaDespesa += parseFloat(o.valor_objetivo||0);
   });
-  // Fallback: orcamento_mensal das categorias
   if(!metaReceita && !metaDespesa) {
     CATS.forEach(c => {
       if(!c.orcamento_mensal) return;
@@ -1090,11 +1364,7 @@ async function loadDashboard(skipAllTx=false) {
   }
   const metaSaldo = metaReceita - metaDespesa;
 
-  const receitaOk = receitas >= metaReceita;
-  const despesaOk = despesas <= metaDespesa || metaDespesa === 0;
   const saldoOk = saldo >= 0;
-
-  // Diffs for cards
   const diffReceita = receitas - metaReceita;
   const diffDespesa = despesas - metaDespesa;
   const diffSaldo = saldo - metaSaldo;
@@ -1148,7 +1418,6 @@ async function buildBarChart() {
   const catFilter = document.getElementById('barChartCatFilter')?.value || '';
   const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
-  // Populate filter options if empty
   const sel = document.getElementById('barChartCatFilter');
   if(sel && sel.options.length <= 1) {
     CATS.forEach(c => {
@@ -1160,14 +1429,12 @@ async function buildBarChart() {
   }
 
   if(!catFilter) {
-    // No filter: use the view + fetch objectives for budget bars
     const [{data}, {data:objs}] = await Promise.all([
       sbClient.from('evolucao_mensal').select('*').order('ano').order('mes'),
       sbClient.from('objetivos').select('*')
     ]);
     if(!data||!data.length) { chart.innerHTML='<div style="color:var(--text3);font-size:13px">Sem dados</div>'; return; }
 
-    // Build budget map by mes/ano: sum all category budgets
     const budgetMap = {};
     (objs||[]).forEach(o => {
       const key = `${o.ano}-${String(o.mes).padStart(2,'0')}`;
@@ -1177,19 +1444,7 @@ async function buildBarChart() {
       if(cat.natureza==='receita') budgetMap[key].receita += parseFloat(o.valor_objetivo||0);
       else budgetMap[key].despesa += parseFloat(o.valor_objetivo||0);
     });
-    // Fallback: use orcamento_mensal from cats if no objectives
-    CATS.forEach(c => {
-      if(!c.orcamento_mensal) return;
-      data.slice(-6).forEach(d => {
-        const key = `${d.ano}-${String(parseInt(d.mes)).padStart(2,'0')}`;
-        if(budgetMap[key]) return; // already has explicit objective
-        if(!budgetMap[key]) budgetMap[key] = {receita:0, despesa:0};
-        if(c.natureza==='receita') budgetMap[key].receita += parseFloat(c.orcamento_mensal||0);
-        else budgetMap[key].despesa += parseFloat(c.orcamento_mensal||0);
-      });
-    });
 
-    // Show 3 months before + selected month + 3 months after
     const selKey = `${selectedYear}-${String(selectedMonth).padStart(2,'0')}`;
     const allKeys = data.map(d=>`${d.ano}-${String(parseInt(d.mes)).padStart(2,'0')}`);
     const selIdx = allKeys.indexOf(selKey);
@@ -1223,7 +1478,6 @@ async function buildBarChart() {
     return;
   }
 
-  // With category filter: query transactions directly
   const {data:txs} = await sbClient.from('transacoes')
     .select('data_pagamento,valor,tipo')
     .eq('confirmado', true)
@@ -1231,8 +1485,6 @@ async function buildBarChart() {
 
   if(!txs||!txs.length) { chart.innerHTML='<div style="color:var(--text3);font-size:13px">Sem dados para esta categoria</div>'; return; }
 
-  // Group by month (last 6 months)
-  // 3 months before + selected month + 3 months after
   const centerDate = new Date(selectedYear, selectedMonth - 1, 1);
   const monthData = {};
   for(let i=-3; i<=3; i++) {
@@ -1250,7 +1502,6 @@ async function buildBarChart() {
     else monthData[key].despesas += val;
   });
 
-  // Fetch objectives for this category
   const {data:catObjs} = await sbClient.from('objetivos').select('*').eq('categoria_id', catFilter);
   const catObjMap = {};
   (catObjs||[]).forEach(o => {
@@ -1289,17 +1540,13 @@ function buildDonut(catSpend) {
   const legend = document.getElementById('donutLegend');
   if(!legend) return;
 
-  // Build ranked list of categories with meta comparison
   const entries = Object.entries(catSpend)
     .map(([id,val]) => {
       const cat = CATS.find(c=>c.id===id);
       if(!cat) return null;
       const absVal = Math.abs(val);
       const meta = cat._meta || cat.orcamento_mensal || 0;
-      // diff: para receita = realizado - meta; para despesa = meta - realizado (positivo = disponível)
       const isReceita = cat.natureza==='receita';
-      // receita: diff = realizado - meta (positivo = acima da meta = bom)
-      // despesa: diff = meta - realizado (positivo = dentro do orcamento = bom, negativo = ultrapassou = ruim)
       const diff = isReceita ? val - meta : meta - absVal;
       const pct = meta > 0 ? Math.round(absVal/meta*100) : null;
       return {cat, val, absVal, meta, diff, pct};
@@ -1315,13 +1562,9 @@ function buildDonut(catSpend) {
   legend.innerHTML = entries.map(({cat,val,absVal,meta,diff,pct}) => {
     const isReceita = cat.natureza==='receita';
     const color = cat.cor || '#007AFF';
-    // Valor exibido: receita em verde (+), despesa em vermelho (valor absoluto)
     const valColor = isReceita ? 'var(--green)' : 'var(--red)';
     const valStr = isReceita ? '+'+fmt(val) : fmt(absVal);
-    // Diferença: receita → acima da meta é BOM (verde), abaixo é ruim (vermelho)
-    //            despesa → abaixo da meta é BOM (verde), acima é ruim (vermelho)
-    // diffOk: receita=acima da meta é bom; despesa=abaixo da meta é bom
-    const diffOk = isReceita ? diff >= 0 : diff >= 0; // diff = meta - absVal para despesa, positivo = dentro do orçamento
+    const diffOk = diff >= 0;
     const diffColor = diffOk ? 'var(--green)' : 'var(--red)';
     const diffLabel = isReceita
       ? (diff>=0 ? '+'+fmt(diff) : '-'+fmt(Math.abs(diff))) + ' (' + pct + '%)'
@@ -1338,22 +1581,6 @@ function buildDonut(catSpend) {
       </div>
     </div>`;
   }).join('');
-}
-
-
-function populateMonthFilter() {
-  const months=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-  const seen=new Set();
-  ALL_TX.forEach(t=>{
-    const d=new Date(t.data_transacao+'T00:00:00');
-    seen.add(`${d.getFullYear()}-${d.getMonth()}`);
-  });
-  const sel=document.getElementById('txMonthFilter');
-  sel.innerHTML='<option value="">Todos os meses</option>'+
-    [...seen].sort().reverse().map(k=>{
-      const [y,m]=k.split('-');
-      return `<option value="${k}">${months[parseInt(m)]} ${y}</option>`;
-    }).join('');
 }
 
 function filterTx() {
@@ -1388,7 +1615,6 @@ function renderTxList(txs) {
   if(empty) empty.style.display = 'none';
   tbody.innerHTML = txs.map(tx => {
     const cat = catById(tx.categoria_id);
-    const bg = cat.cor + '22';
     const isNeg = tx.tipo === 'debito';
     const dateStr = tx.data_transacao ? new Date(tx.data_transacao+'T00:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'}) : '';
     const payStr = tx.data_pagamento && tx.data_pagamento !== tx.data_transacao
@@ -1434,28 +1660,6 @@ function renderTxList(txs) {
   }).join('');
 }
 
-function txHtml(tx) {
-  // Legacy - kept for dashboard recent list
-  const cat = catById(tx.categoria_id);
-  const bg = cat.cor+'22';
-  const isNeg = tx.tipo==='debito';
-  const dateStr = tx.data_transacao ? new Date(tx.data_transacao+'T00:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}) : '';
-  const payStr = tx.data_pagamento&&tx.data_pagamento!==tx.data_transacao ? ` · fat ${new Date(tx.data_pagamento+'T00:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'})}` : '';
-  return `<div class="tx-item">
-    <div class="tx-icon" style="background:${bg}">${cat.icone}</div>
-    <div class="tx-info">
-      <div class="tx-name">${tx.descricao}</div>
-      <div class="tx-date">${dateStr}${payStr}</div>
-      <span style="display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;background:${bg};color:${cat.cor};margin-top:2px">${cat.nome||'Sem categoria'}</span>
-      ${tx.comentario?`<span style="font-size:11px;color:var(--text3);margin-left:6px">💬 ${tx.comentario}</span>`:''}
-    </div>
-    <div style="text-align:right">
-      <div class="tx-amount ${isNeg?'neg':'pos'}">${isNeg?'-':'+'} ${fmt(Math.abs(parseFloat(tx.valor)))}</div>
-      <span class="tag tag-${cat.tipo||'variavel'}">${cat.tipo||''}</span>
-    </div>
-  </div>`;
-}
-
 async function updateTxCat(id, catId) {
   const {error} = await sbClient.from('transacoes').update({categoria_id: catId||null}).eq('id', id);
   if(error) { toast('Erro ao atualizar: '+error.message, 'error'); return; }
@@ -1473,7 +1677,6 @@ async function updateTxComment(id, comment) {
   const tx = ALL_TX.find(t => t.id === id);
   if(tx) tx.comentario = comment||null;
 }
-
 
 async function deleteTx(id) {
   if(!confirm('Deletar esta transação? Esta ação não pode ser desfeita.')) return;
@@ -1499,7 +1702,6 @@ function openEditTx(id) {
   const sel = document.getElementById('editTxCat');
   sel.innerHTML = '<option value="">-- Sem categoria --</option>' +
     CATS.map(c => `<option value="${c.id}" ${c.id===tx.categoria_id?'selected':''}>${c.icone} ${c.nome}</option>`).join('');
-  // Clear and re-open modal to reset state
   const modal = document.getElementById('editTxModal');
   modal.classList.remove('active');
   requestAnimationFrame(() => modal.classList.add('active'));
@@ -1520,14 +1722,11 @@ async function saveEditTx() {
   if(!data.valor) { toast('Informe um valor válido', 'error'); return; }
   const {error} = await sbClient.from('transacoes').update(data).eq('id', id);
   if(error) { toast('Erro ao salvar: '+error.message, 'error'); return; }
-  // Update local array
   const idx = ALL_TX.findIndex(t => t.id === id);
   if(idx >= 0) ALL_TX[idx] = {...ALL_TX[idx], ...data};
   closeModal('editTxModal');
-  // Re-render table so all dropdowns and fields are fresh
   filterTx();
   toast('Transação atualizada!', 'success');
-  // Update dashboard without overwriting ALL_TX
   await loadDashboard(true);
 }
 
@@ -1551,7 +1750,6 @@ async function processFile(file) {
     else if(ext==='pdf') txs=await parsePDF(file);
   } catch(err) { toast('Erro ao ler arquivo: '+err.message,'error'); return; }
 
-  // Apply universal filter to remove bank internal lines (same filter as PDF)
   txs = filterBankInternalLines(txs);
   if(!txs.length) { toast('Nenhuma transação encontrada no arquivo','error'); return; }
   const apiKey = STORE.get('anthropicKey');
@@ -1584,17 +1782,14 @@ async function parseOFX(file) {
 async function parseCSV(file) {
   const text=await file.text();
   const lines=text.split('\n').filter(l=>l.trim());
-  const header=lines[0].toLowerCase();
   const txs=[];
   lines.slice(1).forEach(line=>{
     const cols=line.split(/[;,]/).map(c=>c.trim().replace(/^"|"$/g,''));
     if(cols.length<3) return;
-    // Tenta formato: data, descricao, valor
     const dateRaw=cols[0];
     const descricao=cols[1]||cols[2]||'';
     const valorRaw=parseFloat((cols[2]||cols[3]||'0').replace(/\./g,'').replace(',','.'));
     if(!dateRaw||!valorRaw||!descricao) return;
-    // Normaliza data DD/MM/YYYY ou YYYY-MM-DD
     let date;
     if(dateRaw.includes('/')) {
       const [d,m,y]=dateRaw.split('/');
@@ -1615,7 +1810,6 @@ async function parseExcel(file) {
     if(!row||row.length<3) return;
     let dateRaw=row[0], descricao=String(row[1]||''), valorRaw=parseFloat(String(row[2]||'0').replace(/\./g,'').replace(',','.'));
     if(!descricao||!valorRaw) return;
-    // Excel date serial
     let date;
     if(typeof dateRaw==='number') {
       const d=new Date((dateRaw-25569)*86400*1000);
@@ -1637,7 +1831,6 @@ async function parsePDF(file) {
     const buf = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({data: buf}).promise;
 
-    // Extract text from ALL pages, stopping after "Saldo final" line
     let allItems = [];
     let foundSaldoFinal = false;
     for(let p = 1; p <= pdf.numPages; p++) {
@@ -1652,7 +1845,6 @@ async function parsePDF(file) {
           y: Math.round(item.transform[5]),
           page: p
         });
-        // Stop after "Saldo final" — everything after is summaries/tables
         if(/saldo\s*final/i.test(item.str.trim())) {
           foundSaldoFinal = true;
           break;
@@ -1665,7 +1857,6 @@ async function parsePDF(file) {
       return [];
     }
 
-    // Detect bank format and parse accordingly
     const fullRaw = allItems.map(i => i.text).join(' ');
     const isItau = /itau|itaú|ag \d+ cc/i.test(fullRaw);
     const isBradesco = /bradesco/i.test(fullRaw);
@@ -1674,14 +1865,12 @@ async function parsePDF(file) {
 
     toast('Texto extraido! Convertendo para CSV com IA...', 'info');
 
-    // Convert to CSV first, then parse CSV
     const csv = await convertPDFtoCSVwithAI(allItems, fullRaw, {isItau, isBradesco, isNubank, isSantander});
     if(!csv || !csv.trim()) {
       toast('IA nao conseguiu interpretar. Tentando extrator automatico...', 'info');
       return parsePDFRuleBased(fullRaw);
     }
 
-    // Parse the CSV generated by AI
     let txs = parseGeneratedCSV(csv);
     txs = filterBankInternalLines(txs);
     if(!txs.length) return parsePDFRuleBased(fullRaw);
@@ -1698,7 +1887,6 @@ async function parsePDF(file) {
 async function convertPDFtoCSVwithAI(items, rawText, banks) {
   const apiKey = STORE.get('anthropicKey');
 
-  // Build structured text: group items by Y position (same line)
   const lineMap = {};
   items.forEach(item => {
     const key = item.page + '_' + item.y;
@@ -1706,13 +1894,12 @@ async function convertPDFtoCSVwithAI(items, rawText, banks) {
     lineMap[key].push(item);
   });
 
-  // Sort lines and items within lines
   const lines = Object.entries(lineMap)
     .sort((a,b) => {
       const [pa, ya] = a[0].split('_').map(Number);
       const [pb, yb] = b[0].split('_').map(Number);
       if(pa !== pb) return pa - pb;
-      return yb - ya; // PDF Y is inverted
+      return yb - ya;
     })
     .map(([key, its]) => {
       const sorted = its.sort((a,b) => a.x - b.x);
@@ -1723,11 +1910,9 @@ async function convertPDFtoCSVwithAI(items, rawText, banks) {
                    banks.isNubank ? 'Nubank' : banks.isSantander ? 'Santander' : 'banco brasileiro';
 
   if(!apiKey) {
-    // Fallback without AI
     return buildItauCSVFallback(lines);
   }
 
-  // Process in chunks of 400 lines with 30-line overlap to handle large statements
   const chunkSize = 400;
   const overlap = 30;
   let allCsvLines = ['data,descricao,valor,tipo'];
@@ -1780,7 +1965,6 @@ async function callAIForCSV(structuredText, bankHint) {
     const data = await res.json();
     if(data.error) throw new Error(data.error.message);
     let csv = data.content[0].text.trim();
-    // Remove markdown if present
     csv = csv.replace(/```csv|```/g, '').trim();
     return csv;
 
@@ -1791,42 +1975,34 @@ async function callAIForCSV(structuredText, bankHint) {
 }
 
 function buildItauCSVFallback(lines) {
-  // Rule-based fallback specifically for Itau format
-  // Detect year from header - look for month name followed by 4-digit year
   let year = new Date().getFullYear();
   const headerText = lines.slice(0, 15).join(' ');
-  // Match patterns like 'jan 2026', 'janeiro 2026', 'jan/2026'
   const monthNames = 'jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez|janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro';
   const yearRE = new RegExp('(?:' + monthNames + ')[\\s\\/]+(20\\d{2})', 'i');
   const yearMatch = headerText.match(yearRE);
   if(yearMatch) { year = parseInt(yearMatch[1]); }
   else {
-    // Fallback: find any 20XX year in first lines
     const yearMatch2 = headerText.match(/\b(20\d{2})\b/);
     if(yearMatch2) year = parseInt(yearMatch2[1]);
   }
 
   const csvLines = ['data,descricao,valor,tipo'];
   const dateRE = /^(\d{2})\/(\d{2})$/;
-  const amountRE = /([\d\.]+),(\d{2})-?$/;
   const skipRE = /res aplic aut|rend pago aplic|saldo aplic aut|apl aplic aut|saldo anterior|saldo final|saldo em c|^\s*\d+[,.]\d{2}-?\s*$|totalizador|movimentacao.*aplicac|resumo.*mes|principal|liquido|bruto|rendimento.*mes|resgat|vencimento/i;
 
   let currentDate = null;
 
   lines.forEach(line => {
     const parts = line.split(' | ');
-    // Check if line starts with a date
     const dateMatch = parts[0] && parts[0].match(dateRE);
     if(dateMatch) {
       currentDate = year + '-' + dateMatch[2].padStart(2,'0') + '-' + dateMatch[1].padStart(2,'0');
     }
     if(!currentDate) return;
 
-    // Find description and value
     const lineText = parts.join(' ');
     if(skipRE.test(lineText)) return;
 
-    // Look for monetary values
     parts.forEach((part, idx) => {
       const amtMatch = part.match(/^([\d\.]+),([\d]{2})(-?)$/);
       if(!amtMatch) return;
@@ -1834,7 +2010,6 @@ function buildItauCSVFallback(lines) {
       if(valor <= 0 || valor > 500000) return;
       const isDebito = amtMatch[3] === '-';
 
-      // Description = all parts before this value that aren't dates or numbers
       let desc = parts.slice(0, idx).filter(p => !p.match(/^\d{2}\/\d{2}$/) && !p.match(/^[\d\.,\-]+$/)).join(' ').trim();
       if(!desc) desc = parts.slice(0, Math.max(1, idx)).join(' ').trim();
       if(!desc || desc.length < 2) return;
@@ -1849,55 +2024,38 @@ function buildItauCSVFallback(lines) {
 }
 
 function filterBankInternalLines(txs) {
-  // Patterns to SKIP - internal bank accounting lines
   const skipPatterns = [
-    /^res(gate)?\s*aplic/i,           // Res Aplic Aut Mais, Resgate Aplic
-    /^rend(imento)?\s*pago/i,         // Rend Pago Aplic Aut Mais
-    /^saldo\s*aplic/i,                // SALDO APLIC AUT MAIS
-    /^apl(ica[cç][aã]o)?\s*aplic/i,  // Apl Aplic Aut Mais
-    /^saldo\s*(anterior|final|em\s*c)/i, // Saldo anterior, final, em C/C
-    /^na\s*conta\s*corrente/i,        // na conta corrente (1)
-    /^l[ií]quido$/i,                  // líquido (resumo aplicacoes)
-    /^bruto$/i,                       // bruto (resumo aplicacoes)
-    /^principal$/i,                   // principal (resumo aplicacoes)
-    /^hist[oó]rico$/i,                // histórico (cabecalho tabela)
-    /^totalizador/i,                  // totalizador de aplicacoes
-    /^movimenta[cç][aã]o.*aplic/i,    // movimentacao aplicacoes
-    /^resumo.*m[eê]s/i,               // resumo - mes
-    /^aplicac[oõ]es.*realiz/i,        // aplicacoes realizadas
-    /^valor.*principal/i,             // valor principal
-    /^resgat.*venc/i,                 // resgat/venc
-    /^(\d{2}\/\d{2}\s+)?\d+[\s\.]+\d{2}$/, // pure numbers like "5.343 03" or "02/01 0 00"
-    /^\d{2}\/\d{2}\s+\d+\s+\d{2}$/,  // "02/01 0 00" pattern
+    /^res(gate)?\s*aplic/i,
+    /^rend(imento)?\s*pago/i,
+    /^saldo\s*aplic/i,
+    /^apl(ica[cç][aã]o)?\s*aplic/i,
+    /^saldo\s*(anterior|final|em\s*c)/i,
+    /^na\s*conta\s*corrente/i,
+    /^l[ií]quido$/i,
+    /^bruto$/i,
+    /^principal$/i,
+    /^hist[oó]rico$/i,
+    /^totalizador/i,
+    /^movimenta[cç][aã]o.*aplic/i,
+    /^resumo.*m[eê]s/i,
+    /^aplicac[oõ]es.*realiz/i,
+    /^valor.*principal/i,
+    /^resgat.*venc/i,
+    /^(\d{2}\/\d{2}\s+)?\d+[\s\.]+\d{2}$/,
+    /^\d{2}\/\d{2}\s+\d+\s+\d{2}$/,
   ];
 
   return txs.filter(tx => {
     const desc = (tx.descricao || '').trim();
     if(!desc || desc.length < 2) return false;
-
-    // Check all skip patterns
     if(skipPatterns.some(re => re.test(desc))) return false;
-
-    // Skip if description is purely numeric (saldo values)
     if(/^\d[\d\.\s,]*\d$/.test(desc) && desc.length < 15) return false;
-
-    // Skip lines from the CDB table (pattern: "DD/MM 0 00 NNNN NN 0 NN...")
     if(/^\d{2}\/\d{2}\s+[\d\s]+$/.test(desc)) return false;
-
-    // Skip lines that are mostly numbers with spaces (table rows)
     const wordCount = desc.split(/\s+/).length;
     const numCount = desc.split(/\s+/).filter(w => /^\d+([,\.]\d+)?$/.test(w)).length;
     if(wordCount > 3 && numCount / wordCount > 0.6) return false;
-
-    // Skip rendimento centavos (< R$1 credito with no real description)
     if(tx.tipo === 'credito' && tx.valor < 1.00) return false;
-
-    // Skip totalizador values (very large round numbers that are application summaries)
-    // e.g. "na conta corrente (1)" 11504.17 - already caught above
-
-    // Skip lines that look like table rows from the CDB summary section
-    if(/^\d{2}\/\d{2}$/.test(desc)) return false; // just a date "02/01"
-
+    if(/^\d{2}\/\d{2}$/.test(desc)) return false;
     return true;
   });
 }
@@ -1907,10 +2065,8 @@ function parseGeneratedCSV(csvText) {
   if(lines.length < 2) return [];
 
   const txs = [];
-  // Skip header
   lines.slice(1).forEach(line => {
     if(!line.trim()) return;
-    // Parse CSV line respecting quoted fields
     const cols = [];
     let cur = '', inQ = false;
     for(let i = 0; i < line.length; i++) {
@@ -1923,7 +2079,6 @@ function parseGeneratedCSV(csvText) {
     if(cols.length < 4) return;
     const [dateStr, desc, valStr, tipo] = cols;
 
-    // Validate date
     if(!dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) return;
     const valor = parseFloat(valStr.replace(',','.'));
     if(!valor || valor <= 0) return;
@@ -1943,8 +2098,6 @@ function parseGeneratedCSV(csvText) {
 function parsePDFRuleBased(text) {
   const txs = [];
   const lines = text.split('\n').map(l => l.trim()).filter(l => l);
-  const dateRE = /(\d{2})[\/-](\d{2})[\/-]?(\d{2,4})?/;
-  const valueRE = /R?\$?\s*([\d\.]+,\d{2})/;
   const skipRE = /res aplic|rend pago|saldo aplic|saldo anterior|saldo final|saldo em|total|resumo/i;
 
   let currentDate = null;
@@ -1975,7 +2128,6 @@ function parsePDFRuleBased(text) {
   return txs;
 }
 
-
 // =============================================
 // AI CATEGORIZATION
 // =============================================
@@ -1983,12 +2135,10 @@ async function categorizarComIA(txs) {
   const apiKey=STORE.get('anthropicKey');
   if(!apiKey||!CATS.length) return txs.map(t=>({...t,categoria_id:null,ia:false}));
 
-  // 1. Busca padrões aprendidos (tabela de padrões)
   const {data:padroes}=await sbClient.from('padroes_categorizacao').select('*').limit(200);
   const padraoMap={};
   (padroes||[]).forEach(p=>{ if(!padraoMap[p.texto_padrao]) padraoMap[p.texto_padrao]=p.categoria_id; });
 
-  // 2. Busca histórico real: transações já classificadas manualmente
   const {data:historico}=await sbClient.from('transacoes')
     .select('descricao,categoria_id')
     .eq('confirmado',true)
@@ -1996,13 +2146,11 @@ async function categorizarComIA(txs) {
     .order('criado_em',{ascending:false})
     .limit(150);
 
-  // Monta mapa de exemplos reais: descrição → categoria_id (sem duplicatas)
   const exemploMap={};
   (historico||[]).forEach(h=>{
     const key=h.descricao.substring(0,60).toLowerCase();
     if(!exemploMap[key]) exemploMap[key]={descricao:h.descricao,categoria_id:h.categoria_id};
   });
-  // Também adiciona os padrões aprendidos que não estejam no histórico
   Object.entries(padraoMap).forEach(([texto,catId])=>{
     const key=texto.substring(0,60).toLowerCase();
     if(!exemploMap[key]) exemploMap[key]={descricao:texto,categoria_id:catId};
@@ -2027,13 +2175,11 @@ ${exemplosList||'(sem histórico)'}
 
 FORMATO: [{"index":0,"categoria_id":"uuid"},...]`;
 
-  // Validate API key format before starting
   if(!apiKey.startsWith('sk-ant-')) {
     toast('Chave Anthropic inválida. Acesse Configurações e cole uma chave válida (começa com sk-ant-...)','error');
     return txs.map(t=>({...t,categoria_id:null,ia:false}));
   }
 
-  // Monta todos os lotes
   const batches=[];
   for(let start=0;start<txs.length;start+=BATCH){
     const batch=txs.slice(start,start+BATCH);
@@ -2042,7 +2188,6 @@ FORMATO: [{"index":0,"categoria_id":"uuid"},...]`;
   const totalLotes=batches.length;
   toast(`Categorizando ${txs.length} transações em ${totalLotes} lote${totalLotes>1?'s':''}...`,'info');
 
-  // Executa todos os lotes em paralelo
   await Promise.all(batches.map(async ({start,txList},li)=>{
     try {
       const res=await fetch('https://api.anthropic.com/v1/messages',{
@@ -2080,7 +2225,6 @@ function buildCatOpts(selectedId) {
 }
 
 function refreshCatSelects() {
-  // Atualiza todos os selects de categoria na tela de review sem recriar as linhas
   if(!pendingTx.length) return;
   pendingTx.forEach((_,i)=>{
     const sel=document.getElementById('catSel'+i);
@@ -2105,7 +2249,6 @@ function mostrarReview(txs, fileName) {
       <td><input class="comment-field" id="comment${i}" placeholder="Comentário..." value=""></td>
     </tr>`).join('');
 
-  // Seta categorias sugeridas pela IA
   txs.forEach((tx,i)=>{
     if(tx.categoria_id) document.getElementById('catSel'+i).value=tx.categoria_id;
   });
@@ -2118,7 +2261,6 @@ async function confirmImport() {
   const btn=document.getElementById('confirmBtn');
   btn.textContent='Salvando...'; btn.disabled=true;
 
-  // Monta transações primeiro
   const toSave=[];
   const padroes=[];
 
@@ -2143,7 +2285,6 @@ async function confirmImport() {
     if(catId) padroes.push({texto_padrao:tx.descricao.substring(0,80),categoria_id:catId});
   });
 
-  // Cria registro de importação com timestamp real
   const now = new Date();
   const nomeArq = window._lastUploadFileName || `importacao_${now.toLocaleDateString('pt-BR')}`;
   const tipoArq = nomeArq.toLowerCase().endsWith('.ofx') ? 'ofx' :
@@ -2157,13 +2298,11 @@ async function confirmImport() {
     criado_em: now.toISOString()
   }).select().single();
 
-  // Vincula importacao_id às transações
   if(imp?.id) toSave.forEach(t => t.importacao_id = imp.id);
 
   const {error}=await sbClient.from('transacoes').insert(toSave);
   if(error) { toast('Erro ao salvar: '+error.message,'error'); btn.textContent='✓ Confirmar Importação'; btn.disabled=false; return; }
 
-  // Aprende padrões
   for(const p of padroes) {
     await sbClient.from('padroes_categorizacao').upsert(p,{onConflict:'texto_padrao,categoria_id',ignoreDuplicates:false});
   }
@@ -2186,16 +2325,13 @@ async function loadImportHistory() {
   const el = document.getElementById('importHistory');
   if(!el) return;
 
-  // Load from importacoes table
   const {data: imps} = await sbClient.from('importacoes').select('*').order('criado_em',{ascending:false}).limit(20);
 
-  // Also load transaction summary grouped by month
   const {data: txSummary} = await sbClient.from('transacoes')
     .select('data_transacao, confirmado')
     .eq('confirmado', true)
     .order('data_transacao', {ascending:false});
 
-  // Group transactions by month
   const monthMap = {};
   (txSummary||[]).forEach(t => {
     if(!t.data_transacao) return;
@@ -2209,11 +2345,10 @@ async function loadImportHistory() {
 
   let html = '<div class="tx-list">';
 
-  // Show importacoes records if they exist
   if(imps?.length) {
     imps.forEach(imp => {
       const date = new Date(imp.criado_em).toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
-      const icon = imp.tipo_arquivo==='pdf'?'📄':imp.tipo_arquivo==='excel'?'📊':'📋';
+      const icon = imp.tipo_arquivo==='pdf'?'📄':imp.tipo_arquivo==='excel'?'📊':imp.tipo_arquivo==='pluggy'?'🏦':'📋';
       html += `<div class="tx-item">
         <div class="tx-icon" style="background:rgba(52,199,89,0.1)">${icon}</div>
         <div class="tx-info">
@@ -2225,10 +2360,8 @@ async function loadImportHistory() {
     });
   }
 
-  // Show monthly summary from actual transactions
   if(monthEntries.length) {
     if(imps?.length) html += '<div style="padding:10px 16px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;border-top:1px solid var(--border);margin-top:4px">Resumo por mês</div>';
-    // Build max date per month (most recent transaction = approximate import date)
     const monthMaxDate = {};
     (txSummary||[]).forEach(t => {
       if(!t.data_transacao) return;
@@ -2262,9 +2395,6 @@ async function loadImportHistory() {
 
 // =============================================
 // OBJECTIVES
-// =============================================
-// =============================================
-// DRAG & DROP CATEGORY ORDER
 // =============================================
 let catOrder = [];
 let dragSrcId = null;
@@ -2320,7 +2450,6 @@ function setupObjDrag() {
       e.preventDefault();
       card.classList.remove('drag-over-card');
       if(!dragSrcId || dragSrcId === card.dataset.catId) return;
-      // Reorder catOrder
       const order = getOrderedCats().map(c => c.id);
       const fromIdx = order.indexOf(dragSrcId);
       const toIdx = order.indexOf(card.dataset.catId);
@@ -2352,27 +2481,14 @@ async function loadObjectives() {
   const objMap={};
   (objs||[]).forEach(o=>objMap[o.categoria_id]=parseFloat(o.valor_objetivo));
 
-  // Usa orçamento da categoria como fallback
-  const totalOrca=CATS.reduce((s,c)=>s+(objMap[c.id]||c.orcamento_mensal||0),0);
-  const totalGasto=Object.values(catSpend).reduce((s,v)=>s+v,0);
-  const disponivel=totalOrca-totalGasto;
-
-  // summary cards removed - now in dashboard metrics
-  const _skip =`
-    <div class="metric-card blue"><div class="metric-label">Orçamento Total</div><div class="metric-value" style="color:var(--accent)">${fmt(totalOrca)}</div><div class="metric-sub">meta do mês</div></div>
-    <div class="metric-card red"><div class="metric-label">Gasto Atual</div><div class="metric-value" style="color:var(--red)">${fmt(totalGasto)}</div><div class="metric-sub">${totalOrca>0?Math.round(totalGasto/totalOrca*100):0}% do orçamento</div></div>
-    <div class="metric-card green"><div class="metric-label">Disponível</div><div class="metric-value" style="color:${disponivel>=0?'var(--green)':'var(--red)'}">${fmt(Math.abs(disponivel))}</div><div class="metric-sub">${disponivel<0?'⚠️ Ultrapassado':'restante'}</div></div>`;
-
   document.getElementById('objGrid').innerHTML=getOrderedCats().map(cat=>{
     const orca=objMap[cat.id]||cat.orcamento_mensal||0;
     const isReceita = cat.natureza==='receita';
     const movimentado=catSpend[cat.id]||0;
-    // Para despesa: movimentado é negativo (débitos - créditos), usar valor absoluto
     const movAbs = Math.abs(movimentado);
     const orcaAbs = Math.abs(orca);
     const pct = orcaAbs>0 ? Math.min(200, Math.round(movAbs/orcaAbs*100)) : 0;
     const pctBar = Math.min(100, pct);
-    // Despesa: ultrapassar meta é RUIM. Receita: ultrapassar meta é BOM.
     const avail = isReceita ? movimentado - orca : orca - movAbs;
     const barColor = isReceita
       ? (pct>=100?'var(--green)':pct>=70?'var(--accent)':'var(--orange)')
@@ -2380,7 +2496,6 @@ async function loadObjectives() {
     const chipCls = isReceita
       ? (pct>=100?'green':pct>=70?'blue':'orange')
       : (pct>85?'red':pct>65?'orange':'green');
-    const bg=cat.cor+'22';
     const naturezaLabel = isReceita
       ? `<span class="chip green" style="font-size:10px">Receita</span>`
       : `<span class="chip red" style="font-size:10px">Despesa</span>`;
@@ -2441,7 +2556,6 @@ function toast(msg,type='info') {
 }
 
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
-function openWaModal() { toast('Configure Twilio SID, Token e Webhook no seu servidor backend','info'); }
 
 async function exportCSV() {
   const {data}=await sbClient.from('transacoes').select('*').eq('confirmado',true);
@@ -2465,7 +2579,6 @@ function toggleTxSelect(id, checked) {
   if(checked) txSelected.add(id);
   else txSelected.delete(id);
   updateBulkBar();
-  // Highlight row
   const row = document.getElementById('txrow-' + id);
   if(row) row.style.background = checked ? 'rgba(255,59,48,0.04)' : '';
 }
@@ -2523,7 +2636,7 @@ async function deleteSelected() {
 }
 
 // =============================================
-// LOAD ALL TRANSACTIONS (for transactions tab)
+// LOAD ALL TRANSACTIONS
 // =============================================
 async function loadAllTransactions() {
   document.getElementById('txCount').textContent = 'Carregando...';
@@ -2534,7 +2647,6 @@ async function loadAllTransactions() {
   if(error) { document.getElementById('txCount').textContent = 'Erro ao carregar'; return; }
   ALL_TX = data || [];
   document.getElementById('txCount').textContent = `${ALL_TX.length} transações carregadas`;
-  // Populate month filters
   const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   const seenTx = new Set();
   const seenPay = new Set();
@@ -2557,7 +2669,6 @@ async function loadAllTransactions() {
   document.getElementById('txMonthFilter').innerHTML = makeOpts(seenTx, 'Mês Transação');
   const paySel = document.getElementById('txPayMonthFilter');
   if(paySel) paySel.innerHTML = makeOpts(seenPay, 'Mês Pagamento');
-  // Populate category filter
   const catSel = document.getElementById('txCatFilter');
   catSel.innerHTML = '<option value="">Todas categorias</option>' +
     '<option value="__sem__">— Sem categoria</option>' +
@@ -2576,7 +2687,6 @@ function openManualTx() {
   document.getElementById('manualValue').value = '';
   document.getElementById('manualType').value = 'debito';
   document.getElementById('manualComment').value = '';
-  // Populate categories
   const sel = document.getElementById('manualCat');
   sel.innerHTML = '<option value="">-- Selecionar --</option>' +
     CATS.map(c => `<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
