@@ -1,0 +1,284 @@
+name: Pluggy Auto-Sync
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'  # a cada 10 minutos
+  workflow_dispatch:          # permite rodar manualmente também
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Sincronizar transações da Pluggy
+        uses: actions/github-script@v7
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PLUGGY_CLIENT_ID: ${{ secrets.PLUGGY_CLIENT_ID }}
+          PLUGGY_CLIENT_SECRET: ${{ secrets.PLUGGY_CLIENT_SECRET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        with:
+          script: |
+            const PLUGGY_API = 'https://api.pluggy.ai';
+            const SUPABASE_URL = process.env.SUPABASE_URL;
+            const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
+            const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
+
+            // ── helpers ──────────────────────────────────────────────
+            async function sbGet(path) {
+              const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+                headers: {
+                  'apikey': SUPABASE_KEY,
+                  'Authorization': `Bearer ${SUPABASE_KEY}`,
+                  'Content-Type': 'application/json'
+                }
+              });
+              if (!r.ok) throw new Error(`Supabase GET ${path}: ${r.status} ${await r.text()}`);
+              return r.json();
+            }
+
+            async function sbPost(path, body) {
+              const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+                method: 'POST',
+                headers: {
+                  'apikey': SUPABASE_KEY,
+                  'Authorization': `Bearer ${SUPABASE_KEY}`,
+                  'Content-Type': 'application/json',
+                  'Prefer': 'return=minimal'
+                },
+                body: JSON.stringify(body)
+              });
+              if (!r.ok) throw new Error(`Supabase POST ${path}: ${r.status} ${await r.text()}`);
+            }
+
+            async function sbPostReturn(path, body) {
+              const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+                method: 'POST',
+                headers: {
+                  'apikey': SUPABASE_KEY,
+                  'Authorization': `Bearer ${SUPABASE_KEY}`,
+                  'Content-Type': 'application/json',
+                  'Prefer': 'return=representation'
+                },
+                body: JSON.stringify(body)
+              });
+              if (!r.ok) throw new Error(`Supabase POST ${path}: ${r.status} ${await r.text()}`);
+              return r.json();
+            }
+
+            async function pluggyGet(path, apiKey) {
+              const r = await fetch(`${PLUGGY_API}${path}`, {
+                headers: { 'X-API-KEY': apiKey }
+              });
+              const data = await r.json();
+              if (!r.ok) throw new Error(`Pluggy GET ${path}: ${data.message || r.status}`);
+              return data;
+            }
+
+            // ── 1. Autenticar na Pluggy ───────────────────────────────
+            console.log('Autenticando na Pluggy...');
+            const authRes = await fetch(`${PLUGGY_API}/auth`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                clientId: process.env.PLUGGY_CLIENT_ID,
+                clientSecret: process.env.PLUGGY_CLIENT_SECRET
+              })
+            });
+            const authData = await authRes.json();
+            if (!authRes.ok) throw new Error(`Pluggy auth: ${authData.message}`);
+            const apiKey = authData.apiKey;
+            console.log('Autenticado com sucesso.');
+
+            // ── 2. Buscar items e contas ──────────────────────────────
+            const itemsData = await pluggyGet('/items', apiKey);
+            const items = itemsData.results || [];
+            console.log(`Items encontrados: ${items.length}`);
+            if (!items.length) { console.log('Nenhuma conta conectada.'); return; }
+
+            let allAccounts = [];
+            for (const item of items) {
+              const accs = await pluggyGet(`/accounts?itemId=${item.id}`, apiKey);
+              (accs.results || []).forEach(a => {
+                a._institution = item.connector?.name || 'Banco';
+              });
+              allAccounts = allAccounts.concat(accs.results || []);
+            }
+            console.log(`Contas encontradas: ${allAccounts.length}`);
+
+            // ── 3. Buscar transações (últimos 90 dias) ────────────────
+            const dateFrom = new Date();
+            dateFrom.setDate(dateFrom.getDate() - 90);
+            const dateFromStr = dateFrom.toISOString().split('T')[0];
+
+            let allPluggyTxs = [];
+            for (const acc of allAccounts) {
+              let page = 1;
+              while (true) {
+                const data = await pluggyGet(
+                  `/transactions?accountId=${acc.id}&from=${dateFromStr}&pageSize=100&page=${page}`,
+                  apiKey
+                );
+                const txs = data.results || [];
+                txs.forEach(t => { t._institution = acc._institution; });
+                allPluggyTxs = allPluggyTxs.concat(txs);
+                if (txs.length < 100 || page >= 5) break;
+                page++;
+              }
+            }
+            console.log(`Transações encontradas na Pluggy: ${allPluggyTxs.length}`);
+
+            // ── 4. Buscar fingerprints já existentes no Supabase ──────
+            const existing = await sbGet(
+              `transacoes?select=data_transacao,valor,tipo&confirmado=eq.true&data_transacao=gte.${dateFromStr}`
+            );
+            const existingFP = new Set(
+              existing.map(t => `${t.data_transacao}|${Math.abs(parseFloat(t.valor)).toFixed(2)}|${t.tipo}`)
+            );
+            console.log(`Transações já no Supabase (período): ${existing.length}`);
+
+            // ── 5. Filtrar novas ──────────────────────────────────────
+            const newTxs = allPluggyTxs
+              .map(t => {
+                const date  = (t.date || '').split('T')[0];
+                const valor = Math.abs(parseFloat(t.amount || 0));
+                const tipo  = (t.type || '').toUpperCase() === 'CREDIT' ? 'credito' : 'debito';
+                const fp    = `${date}|${valor.toFixed(2)}|${tipo}`;
+                if (existingFP.has(fp) || !date || !valor) return null;
+                return {
+                  data_transacao: date,
+                  data_pagamento: date,
+                  descricao: (t.description || t.descriptionRaw || 'Transação').trim(),
+                  valor,
+                  tipo,
+                  categoria_id: null,
+                  ia: false
+                };
+              })
+              .filter(Boolean);
+
+            console.log(`Novas transações: ${newTxs.length}`);
+            if (!newTxs.length) {
+              console.log('Nenhuma transação nova. Sync concluído.');
+              return;
+            }
+
+            // ── 6. Categorizar com IA ────────────────────────────────
+            let toSave = newTxs;
+            if (ANTHROPIC_KEY && newTxs.length > 0) {
+              console.log('Buscando categorias do Supabase...');
+              const cats = await sbGet('categorias?select=*&ativo=eq.true');
+              const padroes = await sbGet('padroes_categorizacao?select=*&limit=200');
+              const historico = await sbGet(
+                'transacoes?select=descricao,categoria_id&confirmado=eq.true&categoria_id=not.is.null&order=criado_em.desc&limit=150'
+              );
+
+              if (cats.length > 0) {
+                const catList = cats.map(c => `- id:${c.id} nome:"${c.nome}" icone:${c.icone}`).join('\n');
+                const catMap = {};
+                cats.forEach(c => catMap[c.id] = c.nome);
+
+                const exemploMap = {};
+                historico.forEach(h => {
+                  const key = h.descricao.substring(0, 60).toLowerCase();
+                  if (!exemploMap[key]) exemploMap[key] = { descricao: h.descricao, categoria_id: h.categoria_id };
+                });
+                padroes.forEach(p => {
+                  const key = p.texto_padrao.substring(0, 60).toLowerCase();
+                  if (!exemploMap[key]) exemploMap[key] = { descricao: p.texto_padrao, categoria_id: p.categoria_id };
+                });
+                const exemplos = Object.values(exemploMap).slice(0, 120);
+                const exemplosList = exemplos.map(e => `"${e.descricao}" → ${catMap[e.categoria_id] || e.categoria_id}`).join('\n');
+
+                const systemPrompt = `Classifique transações bancárias brasileiras nas categorias abaixo. Priorize o histórico do usuário. Responda SOMENTE JSON, sem texto extra.\n\nCATEGORIAS:\n${catList}\n\nHISTÓRICO:\n${exemplosList || '(sem histórico)'}\n\nFORMATO: [{"index":0,"categoria_id":"uuid"},...]`;
+
+                const BATCH = 60;
+                const resultMap = {};
+
+                for (let start = 0; start < newTxs.length; start += BATCH) {
+                  const batch = newTxs.slice(start, start + BATCH);
+                  const txList = batch.map((t, bi) => `${start + bi}: "${t.descricao}" (R$ ${t.valor})`).join('\n');
+                  try {
+                    const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': ANTHROPIC_KEY,
+                        'anthropic-version': '2023-06-01'
+                      },
+                      body: JSON.stringify({
+                        model: 'claude-sonnet-4-20250514',
+                        max_tokens: 4000,
+                        messages: [{ role: 'user', content: systemPrompt + '\n\nTransações:\n' + txList }]
+                      })
+                    });
+                    const aiData = await aiRes.json();
+                    if (aiData.error) throw new Error(aiData.error.message);
+                    const text = aiData.content[0].text.replace(/```json|```/g, '').trim();
+                    const result = JSON.parse(text);
+                    result.forEach(r => { resultMap[r.index] = (r.categoria_id || '').trim(); });
+                    console.log(`Lote ${Math.floor(start/BATCH)+1} categorizado.`);
+                  } catch (e) {
+                    console.warn(`Erro ao categorizar lote ${Math.floor(start/BATCH)+1}:`, e.message);
+                  }
+                }
+
+                toSave = newTxs.map((t, i) => {
+                  const catId = resultMap[i] || '';
+                  const catValida = catId && cats.some(c => c.id === catId);
+                  return { ...t, categoria_id: catValida ? catId : null, ia: !!catValida };
+                });
+                console.log(`Categorização concluída. ${toSave.filter(t => t.ia).length} de ${toSave.length} categorizadas.`);
+              }
+            }
+
+            // ── 7. Criar registro de importação ───────────────────────
+            const now = new Date();
+            const impResult = await sbPostReturn('importacoes', {
+              nome_arquivo: `Pluggy Auto-Sync ${now.toISOString()}`,
+              tipo_arquivo: 'pluggy',
+              status: 'concluido',
+              total_transacoes: toSave.length,
+              criado_em: now.toISOString()
+            });
+            const impId = impResult?.[0]?.id || null;
+
+            // ── 8. Salvar transações ──────────────────────────────────
+            const rows = toSave.map(t => ({
+              categoria_id: t.categoria_id || null,
+              data_transacao: t.data_transacao,
+              data_pagamento: t.data_pagamento || t.data_transacao,
+              descricao: t.descricao,
+              valor: t.valor,
+              tipo: t.tipo,
+              comentario: null,
+              categorizado_por_ia: t.ia || false,
+              confirmado: true,
+              importacao_id: impId
+            }));
+
+            await sbPost('transacoes', rows);
+            console.log(`✅ ${rows.length} transações salvas no Supabase.`);
+
+            // ── 9. Aprender padrões ───────────────────────────────────
+            const padroesSalvar = rows
+              .filter(t => t.categoria_id)
+              .map(t => ({ texto_padrao: t.descricao.substring(0, 80), categoria_id: t.categoria_id }));
+
+            if (padroesSalvar.length) {
+              const upsertRes = await fetch(`${SUPABASE_URL}/rest/v1/padroes_categorizacao`, {
+                method: 'POST',
+                headers: {
+                  'apikey': SUPABASE_KEY,
+                  'Authorization': `Bearer ${SUPABASE_KEY}`,
+                  'Content-Type': 'application/json',
+                  'Prefer': 'resolution=merge-duplicates'
+                },
+                body: JSON.stringify(padroesSalvar)
+              });
+              console.log(`Padrões atualizados: ${padroesSalvar.length}`);
+            }
+
+            console.log('🎉 Sync concluído com sucesso!');
